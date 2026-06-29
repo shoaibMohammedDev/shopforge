@@ -67,6 +67,7 @@ export async function GET(request: Request) {
       const salesByMonth: { month: string; revenue: number; orders: number }[] = []
       for (let i = 5; i >= 0; i--) {
         const d = new Date()
+        d.setDate(1) // Set to first of month first to avoid date overflow
         d.setMonth(d.getMonth() - i)
         const monthStr = d.toLocaleString('default', { month: 'short', year: 'numeric' })
         const monthOrders = monthlyOrders.filter(o => {

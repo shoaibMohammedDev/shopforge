@@ -17,15 +17,7 @@ import {
   AccountAddressesPage,
   AccountSettingsPage,
 } from '@/components/pages/account/account-pages'
-import {
-  AdminDashboardPage,
-  AdminProductsPage,
-  AdminOrdersPage,
-  AdminCustomersPage,
-  AdminCouponsPage,
-  AdminReviewsPage,
-  AdminSettingsPage,
-} from '@/components/pages/admin/admin-pages'
+import { AdminPage } from '@/components/pages/admin/admin-pages'
 
 // Admin routes use their own layout (no header/footer)
 const ADMIN_ROUTES = new Set([
@@ -79,23 +71,15 @@ export default function Home() {
 
       // ---- Admin Routes ----
       case 'admin':
-        return <AdminDashboardPage />
       case 'admin-analytics':
-        return <AdminDashboardPage />
       case 'admin-products':
-        return <AdminProductsPage />
       case 'admin-orders':
-        return <AdminOrdersPage />
       case 'admin-customers':
-        return <AdminCustomersPage />
       case 'admin-coupons':
-        return <AdminCouponsPage />
       case 'admin-reviews':
-        return <AdminReviewsPage />
       case 'admin-settings':
-        return <AdminSettingsPage />
       case 'admin-banners':
-        return <AdminDashboardPage />
+        return <AdminPage />
 
       // ---- Default ----
       case 'home':

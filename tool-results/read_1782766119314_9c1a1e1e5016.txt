@@ -1,0 +1,1173 @@
+     1→     1→'use client'
+     2→     2→
+     3→     3→import { useState, useCallback, useMemo, useEffect } from 'react'
+     4→     4→import { useQuery } from '@tanstack/react-query'
+     5→     5→import { motion, AnimatePresence } from 'framer-motion'
+     6→     6→import {
+     7→     7→  Search,
+     8→     8→  SlidersHorizontal,
+     9→     9→  Star,
+    10→    10→  Heart,
+    11→    11→  ShoppingCart,
+    12→    12→  ChevronRight,
+    13→    13→  X,
+    14→    14→  Zap,
+    15→    15→  PackageOpen,
+    16→    16→  Home,
+    17→    17→} from 'lucide-react'
+    18→    18→import { useRouterStore } from '@/stores/router-store'
+    19→    19→import { useCartStore, type LocalCartItem } from '@/stores/cart-store'
+    20→    20→import { useWishlistStore } from '@/stores/wishlist-store'
+    21→    21→import { api } from '@/lib/api-client'
+    22→    22→import { useIsMobile } from '@/hooks/use-mobile'
+    23→    23→import type {
+    24→    24→  ProductListItem,
+    25→    25→  CategoryDisplay,
+    26→    26→  BrandDisplay,
+    27→    27→  PaginatedResponse,
+    28→    28→  ProductFilters,
+    29→    29→} from '@/types'
+    30→    30→
+    31→    31→import { Button } from '@/components/ui/button'
+    32→    32→import { Card, CardContent } from '@/components/ui/card'
+    33→    33→import { Badge } from '@/components/ui/badge'
+    34→    34→import { Skeleton } from '@/components/ui/skeleton'
+    35→    35→import { Input } from '@/components/ui/input'
+    36→    36→import { Checkbox } from '@/components/ui/checkbox'
+    37→    37→import { Label } from '@/components/ui/label'
+    38→    38→import { Separator } from '@/components/ui/separator'
+    39→    39→import { ScrollArea } from '@/components/ui/scroll-area'
+    40→    40→import {
+    41→    41→  Select,
+    42→    42→  SelectContent,
+    43→    43→  SelectItem,
+    44→    44→  SelectTrigger,
+    45→    45→  SelectValue,
+    46→    46→} from '@/components/ui/select'
+    47→    47→import {
+    48→    48→  Sheet,
+    49→    49→  SheetContent,
+    50→    50→  SheetHeader,
+    51→    51→  SheetTitle,
+    52→    52→  SheetTrigger,
+    53→    53→  SheetFooter,
+    54→    54→} from '@/components/ui/sheet'
+    55→    55→import {
+    56→    56→  Breadcrumb,
+    57→    57→  BreadcrumbItem,
+    58→    58→  BreadcrumbLink,
+    59→    59→  BreadcrumbList,
+    60→    60→  BreadcrumbPage,
+    61→    61→  BreadcrumbSeparator,
+    62→    62→} from '@/components/ui/breadcrumb'
+    63→    63→import {
+    64→    64→  Pagination,
+    65→    65→  PaginationContent,
+    66→    66→  PaginationItem,
+    67→    67→  PaginationLink,
+    68→    68→  PaginationNext,
+    69→    69→  PaginationPrevious,
+    70→    70→  PaginationEllipsis,
+    71→    71→} from '@/components/ui/pagination'
+    72→    72→
+    73→    73→// ============================================================================
+    74→    74→// Animation Variants
+    75→    75→// ============================================================================
+    76→    76→
+    77→    77→const staggerContainer = {
+    78→    78→  hidden: { opacity: 0 },
+    79→    79→  visible: {
+    80→    80→    opacity: 1,
+    81→    81→    transition: { staggerChildren: 0.06, delayChildren: 0.1 },
+    82→    82→  },
+    83→    83→}
+    84→    84→
+    85→    85→const staggerItem = {
+    86→    86→  hidden: { opacity: 0, y: 20 },
+    87→    87→  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
+    88→    88→}
+    89→    89→
+    90→    90→// ============================================================================
+    91→    91→// Helpers
+    92→    92→// ============================================================================
+    93→    93→
+    94→    94→function parseImages(imagesStr: string): string[] {
+    95→    95→  try {
+    96→    96→    const parsed = JSON.parse(imagesStr)
+    97→    97→    return Array.isArray(parsed) ? parsed : []
+    98→    98→  } catch {
+    99→    99→    return []
+   100→   100→  }
+   101→   101→}
+   102→   102→
+   103→   103→function formatPrice(price: number): string {
+   104→   104→  return new Intl.NumberFormat('en-US', {
+   105→   105→    style: 'currency',
+   106→   106→    currency: 'USD',
+   107→   107→  }).format(price)
+   108→   108→}
+   109→   109→
+   110→   110→// ============================================================================
+   111→   111→// Filter State Interface
+   112→   112→// ============================================================================
+   113→   113→
+   114→   114→interface FilterState {
+   115→   115→  search: string
+   116→   116→  categoryIds: string[]
+   117→   117→  brandIds: string[]
+   118→   118→  minPrice: string
+   119→   119→  maxPrice: string
+   120→   120→  minRating: number
+   121→   121→  sort: string
+   122→   122→  page: number
+   123→   123→}
+   124→   124→
+   125→   125→const defaultFilters: FilterState = {
+   126→   126→  search: '',
+   127→   127→  categoryIds: [],
+   128→   128→  brandIds: [],
+   129→   129→  minPrice: '',
+   130→   130→  maxPrice: '',
+   131→   131→  minRating: 0,
+   132→   132→  sort: 'newest',
+   133→   133→  page: 1,
+   134→   134→}
+   135→   135→
+   136→   136→// ============================================================================
+   137→   137→// Star Rating Filter Component
+   138→   138→// ============================================================================
+   139→   139→
+   140→   140→function StarRatingFilter({
+   141→   141→  value,
+   142→   142→  onChange,
+   143→   143→}: {
+   144→   144→  value: number
+   145→   145→  onChange: (rating: number) => void
+   146→   146→}) {
+   147→   147→  const options = [4, 3, 2, 1]
+   148→   148→
+   149→   149→  return (
+   150→   150→    <div className="space-y-2">
+   151→   151→      {options.map((rating) => (
+   152→   152→        <button
+   153→   153→          key={rating}
+   154→   154→          type="button"
+   155→   155→          onClick={() => onChange(value === rating ? 0 : rating)}
+   156→   156→          className={`flex items-center gap-2 w-full rounded-md px-2 py-1.5 text-sm transition-colors ${
+   157→   157→            value === rating
+   158→   158→              ? 'bg-primary/10 text-primary font-medium'
+   159→   159→              : 'hover:bg-accent'
+   160→   160→          }`}
+   161→   161→        >
+   162→   162→          <div className="flex items-center gap-0.5">
+   163→   163→            {Array.from({ length: 5 }).map((_, i) => (
+   164→   164→              <Star
+   165→   165→                key={i}
+   166→   166→                className={`size-3.5 ${
+   167→   167→                  i < rating
+   168→   168→                    ? 'fill-amber-400 text-amber-400'
+   169→   169→                    : 'text-muted-foreground/40'
+   170→   170→                }`}
+   171→   171→              />
+   172→   172→            ))}
+   173→   173→          </div>
+   174→   174→          <span className="text-muted-foreground">& up</span>
+   175→   175→        </button>
+   176→   176→      ))}
+   177→   177→    </div>
+   178→   178→  )
+   179→   179→}
+   180→   180→
+   181→   181→// ============================================================================
+   182→   182→// Filter Sidebar Content (shared between desktop & mobile)
+   183→   183→// ============================================================================
+   184→   184→
+   185→   185→function FilterSidebarContent({
+   186→   186→  filters,
+   187→   187→  setFilters,
+   188→   188→  categories,
+   189→   189→  brands,
+   190→   190→  categoriesLoading,
+   191→   191→  brandsLoading,
+   192→   192→  onClose,
+   193→   193→}: {
+   194→   194→  filters: FilterState
+   195→   195→  setFilters: React.Dispatch<React.SetStateAction<FilterState>>
+   196→   196→  categories: CategoryDisplay[]
+   197→   197→  brands: BrandDisplay[]
+   198→   198→  categoriesLoading: boolean
+   199→   199→  brandsLoading: boolean
+   200→   200→  onClose?: () => void
+   201→   201→}) {
+   202→   202→  const toggleCategory = useCallback(
+   203→   203→    (id: string) => {
+   204→   204→      setFilters((prev) => ({
+   205→   205→        ...prev,
+   206→   206→        categoryIds: prev.categoryIds.includes(id)
+   207→   207→          ? prev.categoryIds.filter((c) => c !== id)
+   208→   208→          : [...prev.categoryIds, id],
+   209→   209→        page: 1,
+   210→   210→      }))
+   211→   211→    },
+   212→   212→    [setFilters]
+   213→   213→  )
+   214→   214→
+   215→   215→  const toggleBrand = useCallback(
+   216→   216→    (id: string) => {
+   217→   217→      setFilters((prev) => ({
+   218→   218→        ...prev,
+   219→   219→        brandIds: prev.brandIds.includes(id)
+   220→   220→          ? prev.brandIds.filter((b) => b !== id)
+   221→   221→          : [...prev.brandIds, id],
+   222→   222→        page: 1,
+   223→   223→      }))
+   224→   224→    },
+   225→   225→    [setFilters]
+   226→   226→  )
+   227→   227→
+   228→   228→  const clearFilters = useCallback(() => {
+   229→   229→    setFilters({ ...defaultFilters })
+   230→   230→    onClose?.()
+   231→   231→  }, [setFilters, onClose])
+   232→   232→
+   233→   233→  const hasActiveFilters =
+   234→   234→    filters.categoryIds.length > 0 ||
+   235→   235→    filters.brandIds.length > 0 ||
+   236→   236→    filters.minPrice !== '' ||
+   237→   237→    filters.maxPrice !== '' ||
+   238→   238→    filters.minRating > 0
+   239→   239→
+   240→   240→  return (
+   241→   241→    <div className="space-y-6">
+   242→   242→      {/* Header with Clear */}
+   243→   243→      <div className="flex items-center justify-between">
+   244→   244→        <h3 className="font-semibold text-sm uppercase tracking-wider">Filters</h3>
+   245→   245→        {hasActiveFilters && (
+   246→   246→          <Button variant="ghost" size="sm" onClick={clearFilters} className="h-7 text-xs">
+   247→   247→            Clear All
+   248→   248→          </Button>
+   249→   249→        )}
+   250→   250→      </div>
+   251→   251→
+   252→   252→      <Separator />
+   253→   253→
+   254→   254→      {/* Category Filter */}
+   255→   255→      <div className="space-y-3">
+   256→   256→        <h4 className="font-medium text-sm">Category</h4>
+   257→   257→        {categoriesLoading ? (
+   258→   258→          <div className="space-y-2">
+   259→   259→            {Array.from({ length: 5 }).map((_, i) => (
+   260→   260→              <Skeleton key={i} className="h-5 w-full" />
+   261→   261→            ))}
+   262→   262→          </div>
+   263→   263→        ) : (
+   264→   264→          <ScrollArea className="max-h-48">
+   265→   265→            <div className="space-y-2 pr-2">
+   266→   266→              {categories.map((cat) => (
+   267→   267→                <div key={cat.id} className="flex items-center gap-2">
+   268→   268→                  <Checkbox
+   269→   269→                    id={`cat-${cat.id}`}
+   270→   270→                    checked={filters.categoryIds.includes(cat.id)}
+   271→   271→                    onCheckedChange={() => toggleCategory(cat.id)}
+   272→   272→                  />
+   273→   273→                  <Label
+   274→   274→                    htmlFor={`cat-${cat.id}`}
+   275→   275→                    className="text-sm cursor-pointer flex-1 leading-tight"
+   276→   276→                  >
+   277→   277→                    {cat.name}
+   278→   278→                    {cat._count && (
+   279→   279→                      <span className="text-muted-foreground ml-1">
+   280→   280→                        ({cat._count.products})
+   281→   281→                      </span>
+   282→   282→                    )}
+   283→   283→                  </Label>
+   284→   284→                </div>
+   285→   285→              ))}
+   286→   286→              {/* Render children */}
+   287→   287→              {categories.flatMap((cat) =>
+   288→   288→                cat.children
+   289→   289→                  ? cat.children.map((child) => (
+   290→   290→                      <div key={child.id} className="flex items-center gap-2 pl-4">
+   291→   291→                        <Checkbox
+   292→   292→                          id={`cat-${child.id}`}
+   293→   293→                          checked={filters.categoryIds.includes(child.id)}
+   294→   294→                          onCheckedChange={() => toggleCategory(child.id)}
+   295→   295→                        />
+   296→   296→                        <Label
+   297→   297→                          htmlFor={`cat-${child.id}`}
+   298→   298→                          className="text-sm cursor-pointer flex-1 leading-tight"
+   299→   299→                        >
+   300→   300→                          {child.name}
+   301→   301→                          {child._count && (
+   302→   302→                            <span className="text-muted-foreground ml-1">
+   303→   303→                              ({child._count.products})
+   304→   304→                            </span>
+   305→   305→                          )}
+   306→   306→                        </Label>
+   307→   307→                      </div>
+   308→   308→                    ))
+   309→   309→                  : []
+   310→   310→              )}
+   311→   311→            </div>
+   312→   312→          </ScrollArea>
+   313→   313→        )}
+   314→   314→      </div>
+   315→   315→
+   316→   316→      <Separator />
+   317→   317→
+   318→   318→      {/* Brand Filter */}
+   319→   319→      <div className="space-y-3">
+   320→   320→        <h4 className="font-medium text-sm">Brand</h4>
+   321→   321→        {brandsLoading ? (
+   322→   322→          <div className="space-y-2">
+   323→   323→            {Array.from({ length: 5 }).map((_, i) => (
+   324→   324→              <Skeleton key={i} className="h-5 w-full" />
+   325→   325→            ))}
+   326→   326→          </div>
+   327→   327→        ) : (
+   328→   328→          <ScrollArea className="max-h-48">
+   329→   329→            <div className="space-y-2 pr-2">
+   330→   330→              {brands.map((brand) => (
+   331→   331→                <div key={brand.id} className="flex items-center gap-2">
+   332→   332→                  <Checkbox
+   333→   333→                    id={`brand-${brand.id}`}
+   334→   334→                    checked={filters.brandIds.includes(brand.id)}
+   335→   335→                    onCheckedChange={() => toggleBrand(brand.id)}
+   336→   336→                  />
+   337→   337→                  <Label
+   338→   338→                    htmlFor={`brand-${brand.id}`}
+   339→   339→                    className="text-sm cursor-pointer flex-1 leading-tight"
+   340→   340→                  >
+   341→   341→                    {brand.name}
+   342→   342→                    {brand._count && (
+   343→   343→                      <span className="text-muted-foreground ml-1">
+   344→   344→                        ({brand._count.products})
+   345→   345→                      </span>
+   346→   346→                    )}
+   347→   347→                  </Label>
+   348→   348→                </div>
+   349→   349→              ))}
+   350→   350→            </div>
+   351→   351→          </ScrollArea>
+   352→   352→        )}
+   353→   353→      </div>
+   354→   354→
+   355→   355→      <Separator />
+   356→   356→
+   357→   357→      {/* Price Range */}
+   358→   358→      <div className="space-y-3">
+   359→   359→        <h4 className="font-medium text-sm">Price Range</h4>
+   360→   360→        <div className="flex items-center gap-2">
+   361→   361→          <Input
+   362→   362→            type="number"
+   363→   363→            placeholder="Min"
+   364→   364→            value={filters.minPrice}
+   365→   365→            onChange={(e) =>
+   366→   366→              setFilters((prev) => ({ ...prev, minPrice: e.target.value, page: 1 }))
+   367→   367→            }
+   368→   368→            className="h-8 text-sm"
+   369→   369→            min={0}
+   370→   370→          />
+   371→   371→          <span className="text-muted-foreground text-sm">—</span>
+   372→   372→          <Input
+   373→   373→            type="number"
+   374→   374→            placeholder="Max"
+   375→   375→            value={filters.maxPrice}
+   376→   376→            onChange={(e) =>
+   377→   377→              setFilters((prev) => ({ ...prev, maxPrice: e.target.value, page: 1 }))
+   378→   378→            }
+   379→   379→            className="h-8 text-sm"
+   380→   380→            min={0}
+   381→   381→          />
+   382→   382→        </div>
+   383→   383→      </div>
+   384→   384→
+   385→   385→      <Separator />
+   386→   386→
+   387→   387→      {/* Rating Filter */}
+   388→   388→      <div className="space-y-3">
+   389→   389→        <h4 className="font-medium text-sm">Rating</h4>
+   390→   390→        <StarRatingFilter
+   391→   391→          value={filters.minRating}
+   392→   392→          onChange={(rating) =>
+   393→   393→            setFilters((prev) => ({ ...prev, minRating: rating, page: 1 }))
+   394→   394→          }
+   395→   395→        />
+   396→   396→      </div>
+   397→   397→
+   398→   398→      {/* Mobile Apply Button */}
+   399→   399→      {onClose && (
+   400→   400→        <>
+   401→   401→          <Separator />
+   402→   402→          <Button className="w-full" onClick={onClose}>
+   403→   403→            Apply Filters
+   404→   404→          </Button>
+   405→   405→        </>
+   406→   406→      )}
+   407→   407→    </div>
+   408→   408→  )
+   409→   409→}
+   410→   410→
+   411→   411→// ============================================================================
+   412→   412→// Product Card
+   413→   413→// ============================================================================
+   414→   414→
+   415→   415→function ProductCard({ product }: { product: ProductListItem }) {
+   416→   416→  const navigate = useRouterStore((s) => s.navigate)
+   417→   417→  const addItem = useCartStore((s) => s.addItem)
+   418→   418→  const toggleItem = useWishlistStore((s) => s.toggleItem)
+   419→   419→  const isInWishlist = useWishlistStore((s) => s.isInWishlist)
+   420→   420→  const wishlisted = isInWishlist(product.id)
+   421→   421→
+   422→   422→  const images = parseImages(product.images)
+   423→   423→  const hasDiscount = product.comparePrice && product.comparePrice > product.price
+   424→   424→  const discountPercent = hasDiscount
+   425→   425→    ? Math.round(
+   426→   426→        ((product.comparePrice! - product.price) / product.comparePrice!) * 100
+   427→   427→      )
+   428→   428→    : 0
+   429→   429→
+   430→   430→  const displayPrice =
+   431→   431→    product.flashSales?.[0]?.salePrice ?? product.price
+   432→   432→
+   433→   433→  const totalInventory = product.inventory.reduce(
+   434→   434→    (sum, inv) => sum + inv.quantity - inv.reserved,
+   435→   435→    0
+   436→   436→  )
+   437→   437→  const inStock = totalInventory > 0
+   438→   438→
+   439→   439→  const handleAddToCart = useCallback(
+   440→   440→    (e: React.MouseEvent) => {
+   441→   441→      e.stopPropagation()
+   442→   442→      addItem({
+   443→   443→        productId: product.id,
+   444→   444→        name: product.name,
+   445→   445→        slug: product.slug,
+   446→   446→        price: displayPrice,
+   447→   447→        comparePrice: product.comparePrice ?? undefined,
+   448→   448→        image: images[0] ?? '',
+   449→   449→        quantity: 1,
+   450→   450→        sku: product.slug,
+   451→   451→      })
+   452→   452→    },
+   453→   453→    [addItem, product, images, displayPrice]
+   454→   454→  )
+   455→   455→
+   456→   456→  const handleWishlist = useCallback(
+   457→   457→    (e: React.MouseEvent) => {
+   458→   458→      e.stopPropagation()
+   459→   459→      toggleItem(product.id)
+   460→   460→    },
+   461→   461→    [toggleItem, product.id]
+   462→   462→  )
+   463→   463→
+   464→   464→  const handleNavigate = useCallback(() => {
+   465→   465→    navigate('product-detail', { id: product.id })
+   466→   466→  }, [navigate, product.id])
+   467→   467→
+   468→   468→  return (
+   469→   469→    <motion.div variants={staggerItem} className="group">
+   470→   470→      <Card
+   471→   471→        className="overflow-hidden cursor-pointer transition-all hover:shadow-lg py-0 gap-0"
+   472→   472→        onClick={handleNavigate}
+   473→   473→      >
+   474→   474→        {/* Image / Gradient placeholder */}
+   475→   475→        <div className="relative aspect-square overflow-hidden bg-muted">
+   476→   476→          {images[0] ? (
+   477→   477→            <img
+   478→   478→              src={images[0]}
+   479→   479→              alt={product.name}
+   480→   480→              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+   481→   481→            />
+   482→   482→          ) : (
+   483→   483→            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-800">
+   484→   484→              <span className="text-4xl font-bold text-slate-400 dark:text-slate-500">
+   485→   485→                {product.name.charAt(0).toUpperCase()}
+   486→   486→              </span>
+   487→   487→            </div>
+   488→   488→          )}
+   489→   489→
+   490→   490→          {/* Discount badge */}
+   491→   491→          {discountPercent > 0 && (
+   492→   492→            <Badge className="absolute top-2 left-2 bg-red-500 text-white hover:bg-red-600 border-0 text-xs">
+   493→   493→              -{discountPercent}%
+   494→   494→            </Badge>
+   495→   495→          )}
+   496→   496→
+   497→   497→          {/* Flash sale badge */}
+   498→   498→          {product.flashSales && product.flashSales.length > 0 && (
+   499→   499→            <Badge className="absolute top-2 left-2 bg-orange-500 text-white hover:bg-orange-600 border-0 text-xs gap-1">
+   500→   500→              <Zap className="size-3" /> Flash
+   501→   501→            </Badge>
+   502→   502→          )}
+   503→   503→
+   504→   504→          {/* Out of stock overlay */}
+   505→   505→          {!inStock && (
+   506→   506→            <div className="absolute inset-0 bg-background/60 flex items-center justify-center">
+   507→   507→              <Badge variant="secondary" className="text-xs font-medium">
+   508→   508→                Out of Stock
+   509→   509→              </Badge>
+   510→   510→            </div>
+   511→   511→          )}
+   512→   512→
+   513→   513→          {/* Wishlist button */}
+   514→   514→          <Button
+   515→   515→            variant="ghost"
+   516→   516→            size="icon"
+   517→   517→            className="absolute top-2 right-2 size-8 rounded-full bg-white/80 dark:bg-black/50 hover:bg-white dark:hover:bg-black/70 transition-opacity opacity-0 group-hover:opacity-100"
+   518→   518→            onClick={handleWishlist}
+   519→   519→            aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+   520→   520→          >
+   521→   521→            <Heart
+   522→   522→              className={`size-4 ${
+   523→   523→                wishlisted
+   524→   524→                  ? 'fill-red-500 text-red-500'
+   525→   525→                  : 'text-slate-600 dark:text-slate-300'
+   526→   526→              }`}
+   527→   527→            />
+   528→   528→          </Button>
+   529→   529→        </div>
+   530→   530→
+   531→   531→        <CardContent className="p-4 space-y-2">
+   532→   532→          {/* Brand */}
+   533→   533→          {product.brand && (
+   534→   534→            <p className="text-xs text-muted-foreground truncate">
+   535→   535→              {product.brand.name}
+   536→   536→            </p>
+   537→   537→          )}
+   538→   538→
+   539→   539→          {/* Name */}
+   540→   540→          <h3 className="font-medium text-sm line-clamp-2 leading-tight min-h-[2.5rem]">
+   541→   541→            {product.name}
+   542→   542→          </h3>
+   543→   543→
+   544→   544→          {/* Rating */}
+   545→   545→          <div className="flex items-center gap-1">
+   546→   546→            <div className="flex items-center">
+   547→   547→              {Array.from({ length: 5 }).map((_, i) => (
+   548→   548→                <Star
+   549→   549→                  key={i}
+   550→   550→                  className={`size-3.5 ${
+   551→   551→                    i < Math.round(product.avgRating)
+   552→   552→                      ? 'fill-amber-400 text-amber-400'
+   553→   553→                      : 'text-slate-300 dark:text-slate-600'
+   554→   554→                  }`}
+   555→   555→                />
+   556→   556→              ))}
+   557→   557→            </div>
+   558→   558→            <span className="text-xs text-muted-foreground">
+   559→   559→              ({product.reviewCount})
+   560→   560→            </span>
+   561→   561→          </div>
+   562→   562→
+   563→   563→          {/* Price */}
+   564→   564→          <div className="flex items-baseline gap-2">
+   565→   565→            <span
+   566→   566→              className={`font-semibold ${
+   567→   567→                product.flashSales && product.flashSales.length > 0
+   568→   568→                  ? 'text-red-600 dark:text-red-400'
+   569→   569→                  : ''
+   570→   570→              }`}
+   571→   571→            >
+   572→   572→              {formatPrice(displayPrice)}
+   573→   573→            </span>
+   574→   574→            {hasDiscount && (
+   575→   575→              <span className="text-sm text-muted-foreground line-through">
+   576→   576→                {formatPrice(product.comparePrice!)}
+   577→   577→              </span>
+   578→   578→            )}
+   579→   579→          </div>
+   580→   580→
+   581→   581→          {/* Add to cart */}
+   582→   582→          <Button
+   583→   583→            size="sm"
+   584→   584→            className="w-full mt-1 gap-2"
+   585→   585→            onClick={handleAddToCart}
+   586→   586→            disabled={!inStock}
+   587→   587→          >
+   588→   588→            <ShoppingCart className="size-4" />
+   589→   589→            {inStock ? 'Add to Cart' : 'Out of Stock'}
+   590→   590→          </Button>
+   591→   591→        </CardContent>
+   592→   592→      </Card>
+   593→   593→    </motion.div>
+   594→   594→  )
+   595→   595→}
+   596→   596→
+   597→   597→// ============================================================================
+   598→   598→// Product Card Skeleton
+   599→   599→// ============================================================================
+   600→   600→
+   601→   601→function ProductCardSkeleton() {
+   602→   602→  return (
+   603→   603→    <Card className="overflow-hidden py-0 gap-0">
+   604→   604→      <Skeleton className="aspect-square w-full" />
+   605→   605→      <div className="p-4 space-y-3">
+   606→   606→        <Skeleton className="h-3 w-16" />
+   607→   607→        <Skeleton className="h-4 w-full" />
+   608→   608→        <Skeleton className="h-4 w-2/3" />
+   609→   609→        <div className="flex gap-1">
+   610→   610→          {Array.from({ length: 5 }).map((_, i) => (
+   611→   611→            <Skeleton key={i} className="size-3.5 rounded-full" />
+   612→   612→          ))}
+   613→   613→        </div>
+   614→   614→        <div className="flex items-baseline gap-2">
+   615→   615→          <Skeleton className="h-5 w-20" />
+   616→   616→          <Skeleton className="h-4 w-16" />
+   617→   617→        </div>
+   618→   618→        <Skeleton className="h-8 w-full" />
+   619→   619→      </div>
+   620→   620→    </Card>
+   621→   621→  )
+   622→   622→}
+   623→   623→
+   624→   624→// ============================================================================
+   625→   625→// Empty State
+   626→   626→// ============================================================================
+   627→   627→
+   628→   628→function EmptyState({ hasFilters, onClear }: { hasFilters: boolean; onClear: () => void }) {
+   629→   629→  return (
+   630→   630→    <motion.div
+   631→   631→      initial={{ opacity: 0, y: 20 }}
+   632→   632→      animate={{ opacity: 1, y: 0 }}
+   633→   633→      className="flex flex-col items-center justify-center py-20 text-center"
+   634→   634→    >
+   635→   635→      <div className="rounded-full bg-muted p-6 mb-4">
+   636→   636→        <PackageOpen className="size-12 text-muted-foreground" />
+   637→   637→      </div>
+   638→   638→      <h3 className="text-xl font-semibold mb-2">No products found</h3>
+   639→   639→      <p className="text-muted-foreground mb-6 max-w-md">
+   640→   640→        {hasFilters
+   641→   641→          ? 'We couldn\'t find any products matching your filters. Try adjusting your search criteria.'
+   642→   642→          : 'There are no products available at the moment. Check back soon!'}
+   643→   643→      </p>
+   644→   644→      {hasFilters && (
+   645→   645→        <Button variant="outline" onClick={onClear}>
+   646→   646→          Clear All Filters
+   647→   647→        </Button>
+   648→   648→      )}
+   649→   649→    </motion.div>
+   650→   650→  )
+   651→   651→}
+   652→   652→
+   653→   653→// ============================================================================
+   654→   654→// Pagination Helper
+   655→   655→// ============================================================================
+   656→   656→
+   657→   657→function generatePaginationPages(currentPage: number, totalPages: number): (number | 'ellipsis')[] {
+   658→   658→  if (totalPages <= 7) {
+   659→   659→    return Array.from({ length: totalPages }, (_, i) => i + 1)
+   660→   660→  }
+   661→   661→
+   662→   662→  const pages: (number | 'ellipsis')[] = [1]
+   663→   663→
+   664→   664→  if (currentPage > 3) {
+   665→   665→    pages.push('ellipsis')
+   666→   666→  }
+   667→   667→
+   668→   668→  const start = Math.max(2, currentPage - 1)
+   669→   669→  const end = Math.min(totalPages - 1, currentPage + 1)
+   670→   670→
+   671→   671→  for (let i = start; i <= end; i++) {
+   672→   672→    pages.push(i)
+   673→   673→  }
+   674→   674→
+   675→   675→  if (currentPage < totalPages - 2) {
+   676→   676→    pages.push('ellipsis')
+   677→   677→  }
+   678→   678→
+   679→   679→  pages.push(totalPages)
+   680→   680→  return pages
+   681→   681→}
+   682→   682→
+   683→   683→// ============================================================================
+   684→   684→// Main ProductsPage Component
+   685→   685→// ============================================================================
+   686→   686→
+   687→   687→export default function ProductsPage() {
+   688→   688→  const navigate = useRouterStore((s) => s.navigate)
+   689→   689→  const params = useRouterStore((s) => s.params)
+   690→   690→  const isMobile = useIsMobile()
+   691→   691→  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
+   692→   692→
+   693→   693→  // Initialize filters from router params
+   694→   694→  const [filters, setFilters] = useState<FilterState>(() => ({
+   695→   695→    ...defaultFilters,
+   696→   696→    search: params.search || '',
+   697→   697→    categoryIds: params.categoryId ? [params.categoryId] : [],
+   698→   698→    brandIds: params.brandId ? [params.brandId] : [],
+   699→   699→    sort: params.sort || defaultFilters.sort,
+   700→   700→  }))
+   701→   701→
+   702→   702→  // Search input with debounce
+   703→   703→  const [searchInput, setSearchInput] = useState(filters.search)
+   704→   704→
+   705→   705→  // Search debounce effect
+   706→   706→  useEffect(() => {
+   707→   707→    const timer = setTimeout(() => {
+   708→   708→      setFilters((prev) => ({ ...prev, search: searchInput, page: 1 }))
+   709→   709→    }, 400)
+   710→   710→    return () => clearTimeout(timer)
+   711→   711→  }, [searchInput])
+   712→   712→
+   713→   713→  // Build query params
+   714→   714→  const queryParams = useMemo(() => {
+   715→   715→    const p: Record<string, string | number | boolean | undefined> = {
+   716→   716→      page: filters.page,
+   717→   717→      limit: 12,
+   718→   718→      sort: filters.sort,
+   719→   719→    }
+   720→   720→    if (filters.search) p.search = filters.search
+   721→   721→    if (filters.categoryIds.length > 0) p.categoryId = filters.categoryIds.join(',')
+   722→   722→    if (filters.brandIds.length > 0) p.brandId = filters.brandIds.join(',')
+   723→   723→    if (filters.minPrice) p.minPrice = filters.minPrice
+   724→   724→    if (filters.maxPrice) p.maxPrice = filters.maxPrice
+   725→   725→    if (filters.minRating > 0) p.minRating = filters.minRating
+   726→   726→    if (params.isFeatured === 'true') p.isFeatured = true
+   727→   727→    if (params.tag) p.tag = params.tag
+   728→   728→    return p
+   729→   729→  }, [filters, params.isFeatured, params.tag])
+   730→   730→
+   731→   731→  // Fetch products
+   732→   732→  const {
+   733→   733→    data: productsData,
+   734→   734→    isLoading: productsLoading,
+   735→   735→    isError: productsError,
+   736→   736→  } = useQuery({
+   737→   737→    queryKey: ['products', queryParams],
+   738→   738→    queryFn: async () => {
+   739→   739→      const response = await api.get<PaginatedResponse<ProductListItem>>(
+   740→   740→        '/products',
+   741→   741→        queryParams
+   742→   742→      )
+   743→   743→      if (!response.success || !response.data) {
+   744→   744→        throw new Error(response.error || 'Failed to fetch products')
+   745→   745→      }
+   746→   746→      return response.data
+   747→   747→    },
+   748→   748→  })
+   749→   749→
+   750→   750→  // Fetch categories
+   751→   751→  const { data: categories = [], isLoading: categoriesLoading } = useQuery({
+   752→   752→    queryKey: ['categories'],
+   753→   753→    queryFn: async () => {
+   754→   754→      const response = await api.get<CategoryDisplay[]>('/categories')
+   755→   755→      if (!response.success || !response.data) {
+   756→   756→        throw new Error(response.error || 'Failed to fetch categories')
+   757→   757→      }
+   758→   758→      return response.data
+   759→   759→    },
+   760→   760→  })
+   761→   761→
+   762→   762→  // Fetch brands
+   763→   763→  const { data: brands = [], isLoading: brandsLoading } = useQuery({
+   764→   764→    queryKey: ['brands'],
+   765→   765→    queryFn: async () => {
+   766→   766→      const response = await api.get<BrandDisplay[]>('/brands')
+   767→   767→      if (!response.success || !response.data) {
+   768→   768→        throw new Error(response.error || 'Failed to fetch brands')
+   769→   769→      }
+   770→   770→      return response.data
+   771→   771→    },
+   772→   772→  })
+   773→   773→
+   774→   774→  // Find active category name for breadcrumb
+   775→   775→  const activeCategoryName = useMemo(() => {
+   776→   776→    if (filters.categoryIds.length !== 1) return null
+   777→   777→    const findName = (cats: CategoryDisplay[]): string | null => {
+   778→   778→      for (const cat of cats) {
+   779→   779→        if (cat.id === filters.categoryIds[0]) return cat.name
+   780→   780→        if (cat.children) {
+   781→   781→          const found = findName(cat.children)
+   782→   782→          if (found) return found
+   783→   783→        }
+   784→   784→      }
+   785→   785→      return null
+   786→   786→    }
+   787→   787→    return findName(categories)
+   788→   788→  }, [filters.categoryIds, categories])
+   789→   789→
+   790→   790→  const hasActiveFilters =
+   791→   791→    filters.categoryIds.length > 0 ||
+   792→   792→    filters.brandIds.length > 0 ||
+   793→   793→    filters.minPrice !== '' ||
+   794→   794→    filters.maxPrice !== '' ||
+   795→   795→    filters.minRating > 0 ||
+   796→   796→    filters.search !== ''
+   797→   797→
+   798→   798→  const clearAllFilters = useCallback(() => {
+   799→   799→    setFilters({ ...defaultFilters })
+   800→   800→    setSearchInput('')
+   801→   801→  }, [])
+   802→   802→
+   803→   803→  const products = productsData?.items ?? []
+   804→   804→  const totalProducts = productsData?.total ?? 0
+   805→   805→  const totalPages = productsData?.totalPages ?? 0
+   806→   806→  const currentPage = productsData?.page ?? 1
+   807→   807→
+   808→   808→  return (
+   809→   809→    <div className="min-h-screen flex flex-col">
+   810→   810→      {/* Breadcrumb */}
+   811→   811→      <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+   812→   812→        <div className="container mx-auto px-4 py-3">
+   813→   813→          <Breadcrumb>
+   814→   814→            <BreadcrumbList>
+   815→   815→              <BreadcrumbItem>
+   816→   816→                <BreadcrumbLink
+   817→   817→                  className="cursor-pointer flex items-center gap-1"
+   818→   818→                  onClick={() => navigate('home')}
+   819→   819→                >
+   820→   820→                  <Home className="size-3.5" />
+   821→   821→                  Home
+   822→   822→                </BreadcrumbLink>
+   823→   823→              </BreadcrumbItem>
+   824→   824→              <BreadcrumbSeparator />
+   825→   825→              <BreadcrumbItem>
+   826→   826→                {activeCategoryName ? (
+   827→   827→                  <BreadcrumbLink
+   828→   828→                    className="cursor-pointer"
+   829→   829→                    onClick={() =>
+   830→   830→                      setFilters((prev) => ({
+   831→   831→                        ...prev,
+   832→   832→                        categoryIds: [],
+   833→   833→                        page: 1,
+   834→   834→                      }))
+   835→   835→                    }
+   836→   836→                  >
+   837→   837→                    Products
+   838→   838→                  </BreadcrumbLink>
+   839→   839→                ) : (
+   840→   840→                  <BreadcrumbPage>Products</BreadcrumbPage>
+   841→   841→                )}
+   842→   842→              </BreadcrumbItem>
+   843→   843→              {activeCategoryName && (
+   844→   844→                <>
+   845→   845→                  <BreadcrumbSeparator />
+   846→   846→                  <BreadcrumbItem>
+   847→   847→                    <BreadcrumbPage>{activeCategoryName}</BreadcrumbPage>
+   848→   848→                  </BreadcrumbItem>
+   849→   849→                </>
+   850→   850→              )}
+   851→   851→            </BreadcrumbList>
+   852→   852→          </Breadcrumb>
+   853→   853→        </div>
+   854→   854→      </div>
+   855→   855→
+   856→   856→      {/* Main content */}
+   857→   857→      <div className="flex-1">
+   858→   858→        <div className="container mx-auto px-4 py-6">
+   859→   859→          <div className="flex gap-6">
+   860→   860→            {/* Desktop Filter Sidebar */}
+   861→   861→            {!isMobile && (
+   862→   862→              <aside className="hidden lg:block w-64 shrink-0">
+   863→   863→                <div className="sticky top-20">
+   864→   864→                  <ScrollArea className="h-[calc(100vh-6rem)]">
+   865→   865→                    <div className="pr-4 pb-8">
+   866→   866→                      <FilterSidebarContent
+   867→   867→                        filters={filters}
+   868→   868→                        setFilters={setFilters}
+   869→   869→                        categories={categories}
+   870→   870→                        brands={brands}
+   871→   871→                        categoriesLoading={categoriesLoading}
+   872→   872→                        brandsLoading={brandsLoading}
+   873→   873→                      />
+   874→   874→                    </div>
+   875→   875→                  </ScrollArea>
+   876→   876→                </div>
+   877→   877→              </aside>
+   878→   878→            )}
+   879→   879→
+   880→   880→            {/* Product listing area */}
+   881→   881→            <main className="flex-1 min-w-0">
+   882→   882→              {/* Sort & Search Bar */}
+   883→   883→              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-6">
+   884→   884→                {/* Mobile Filter Button */}
+   885→   885→                {isMobile && (
+   886→   886→                  <Sheet open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
+   887→   887→                    <SheetTrigger asChild>
+   888→   888→                      <Button variant="outline" size="sm" className="gap-2 shrink-0">
+   889→   889→                        <SlidersHorizontal className="size-4" />
+   890→   890→                        Filters
+   891→   891→                        {hasActiveFilters && (
+   892→   892→                          <Badge className="ml-1 h-5 min-w-5 px-1 text-[10px]">
+   893→   893→                            {filters.categoryIds.length +
+   894→   894→                              filters.brandIds.length +
+   895→   895→                              (filters.minPrice !== '' ? 1 : 0) +
+   896→   896→                              (filters.maxPrice !== '' ? 1 : 0) +
+   897→   897→                              (filters.minRating > 0 ? 1 : 0)}
+   898→   898→                          </Badge>
+   899→   899→                        )}
+   900→   900→                      </Button>
+   901→   901→                    </SheetTrigger>
+   902→   902→                    <SheetContent side="left" className="w-[320px] sm:w-[380px]">
+   903→   903→                      <SheetHeader>
+   904→   904→                        <SheetTitle className="flex items-center gap-2">
+   905→   905→                          <SlidersHorizontal className="size-5" />
+   906→   906→                          Filter Products
+   907→   907→                        </SheetTitle>
+   908→   908→                      </SheetHeader>
+   909→   909→                      <ScrollArea className="h-[calc(100vh-10rem)] pr-2">
+   910→   910→                        <div className="py-4">
+   911→   911→                          <FilterSidebarContent
+   912→   912→                            filters={filters}
+   913→   913→                            setFilters={setFilters}
+   914→   914→                            categories={categories}
+   915→   915→                            brands={brands}
+   916→   916→                            categoriesLoading={categoriesLoading}
+   917→   917→                            brandsLoading={brandsLoading}
+   918→   918→                            onClose={() => setMobileFiltersOpen(false)}
+   919→   919→                          />
+   920→   920→                        </div>
+   921→   921→                      </ScrollArea>
+   922→   922→                    </SheetContent>
+   923→   923→                  </Sheet>
+   924→   924→                )}
+   925→   925→
+   926→   926→                {/* Search */}
+   927→   927→                <div className="relative flex-1 w-full sm:max-w-xs">
+   928→   928→                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+   929→   929→                  <Input
+   930→   930→                    type="text"
+   931→   931→                    placeholder="Search products..."
+   932→   932→                    value={searchInput}
+   933→   933→                    onChange={(e) => setSearchInput(e.target.value)}
+   934→   934→                    className="pl-9 pr-9 h-9"
+   935→   935→                  />
+   936→   936→                  {searchInput && (
+   937→   937→                    <button
+   938→   938→                      type="button"
+   939→   939→                      onClick={() => setSearchInput('')}
+   940→   940→                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+   941→   941→                    >
+   942→   942→                      <X className="size-3.5" />
+   943→   943→                    </button>
+   944→   944→                  )}
+   945→   945→                </div>
+   946→   946→
+   947→   947→                {/* Sort */}
+   948→   948→                <Select
+   949→   949→                  value={filters.sort}
+   950→   950→                  onValueChange={(value) =>
+   951→   951→                    setFilters((prev) => ({ ...prev, sort: value, page: 1 }))
+   952→   952→                  }
+   953→   953→                >
+   954→   954→                  <SelectTrigger className="w-[180px] h-9">
+   955→   955→                    <SelectValue placeholder="Sort by" />
+   956→   956→                  </SelectTrigger>
+   957→   957→                  <SelectContent>
+   958→   958→                    <SelectItem value="newest">Newest</SelectItem>
+   959→   959→                    <SelectItem value="price-asc">Price: Low to High</SelectItem>
+   960→   960→                    <SelectItem value="price-desc">Price: High to Low</SelectItem>
+   961→   961→                    <SelectItem value="rating">Rating</SelectItem>
+   962→   962→                    <SelectItem value="popular">Popular</SelectItem>
+   963→   963→                  </SelectContent>
+   964→   964→                </Select>
+   965→   965→
+   966→   966→                {/* Results count */}
+   967→   967→                <span className="text-sm text-muted-foreground whitespace-nowrap ml-auto">
+   968→   968→                  {productsLoading
+   969→   969→                    ? 'Loading...'
+   970→   970→                    : `Showing ${products.length} of ${totalProducts} products`}
+   971→   971→                </span>
+   972→   972→              </div>
+   973→   973→
+   974→   974→              {/* Active filter chips */}
+   975→   975→              {hasActiveFilters && (
+   976→   976→                <div className="flex flex-wrap gap-2 mb-4">
+   977→   977→                  {filters.search && (
+   978→   978→                    <Badge variant="secondary" className="gap-1">
+   979→   979→                      Search: {filters.search}
+   980→   980→                      <X
+   981→   981→                        className="size-3 cursor-pointer"
+   982→   982→                        onClick={() => {
+   983→   983→                          setSearchInput('')
+   984→   984→                          setFilters((prev) => ({ ...prev, search: '', page: 1 }))
+   985→   985→                        }}
+   986→   986→                      />
+   987→   987→                    </Badge>
+   988→   988→                  )}
+   989→   989→                  {filters.categoryIds.map((id) => {
+   990→   990→                    const cat = categories.find((c) => c.id === id) ||
+   991→   991→                      categories.flatMap((c) => c.children || []).find((c) => c.id === id)
+   992→   992→                    return cat ? (
+   993→   993→                      <Badge key={id} variant="secondary" className="gap-1">
+   994→   994→                        {cat.name}
+   995→   995→                        <X
+   996→   996→                          className="size-3 cursor-pointer"
+   997→   997→                          onClick={() =>
+   998→   998→                            setFilters((prev) => ({
+   999→   999→                              ...prev,
+  1000→  1000→                              categoryIds: prev.categoryIds.filter((c) => c !== id),
+  1001→  1001→                              page: 1,
+  1002→  1002→                            }))
+  1003→  1003→                          }
+  1004→  1004→                        />
+  1005→  1005→                      </Badge>
+  1006→  1006→                    ) : null
+  1007→  1007→                  })}
+  1008→  1008→                  {filters.brandIds.map((id) => {
+  1009→  1009→                    const brand = brands.find((b) => b.id === id)
+  1010→  1010→                    return brand ? (
+  1011→  1011→                      <Badge key={id} variant="secondary" className="gap-1">
+  1012→  1012→                        {brand.name}
+  1013→  1013→                        <X
+  1014→  1014→                          className="size-3 cursor-pointer"
+  1015→  1015→                          onClick={() =>
+  1016→  1016→                            setFilters((prev) => ({
+  1017→  1017→                              ...prev,
+  1018→  1018→                              brandIds: prev.brandIds.filter((b) => b !== id),
+  1019→  1019→                              page: 1,
+  1020→  1020→                            }))
+  1021→  1021→                          }
+  1022→  1022→                        />
+  1023→  1023→                      </Badge>
+  1024→  1024→                    ) : null
+  1025→  1025→                  })}
+  1026→  1026→                  {filters.minPrice && (
+  1027→  1027→                    <Badge variant="secondary" className="gap-1">
+  1028→  1028→                      Min: ${filters.minPrice}
+  1029→  1029→                      <X
+  1030→  1030→                        className="size-3 cursor-pointer"
+  1031→  1031→                        onClick={() =>
+  1032→  1032→                          setFilters((prev) => ({ ...prev, minPrice: '', page: 1 }))
+  1033→  1033→                        }
+  1034→  1034→                      />
+  1035→  1035→                    </Badge>
+  1036→  1036→                  )}
+  1037→  1037→                  {filters.maxPrice && (
+  1038→  1038→                    <Badge variant="secondary" className="gap-1">
+  1039→  1039→                      Max: ${filters.maxPrice}
+  1040→  1040→                      <X
+  1041→  1041→                        className="size-3 cursor-pointer"
+  1042→  1042→                        onClick={() =>
+  1043→  1043→                          setFilters((prev) => ({ ...prev, maxPrice: '', page: 1 }))
+  1044→  1044→                        }
+  1045→  1045→                      />
+  1046→  1046→                    </Badge>
+  1047→  1047→                  )}
+  1048→  1048→                  {filters.minRating > 0 && (
+  1049→  1049→                    <Badge variant="secondary" className="gap-1">
+  1050→  1050→                      {filters.minRating}+ Stars
+  1051→  1051→                      <X
+  1052→  1052→                        className="size-3 cursor-pointer"
+  1053→  1053→                        onClick={() =>
+  1054→  1054→                          setFilters((prev) => ({ ...prev, minRating: 0, page: 1 }))
+  1055→  1055→                        }
+  1056→  1056→                      />
+  1057→  1057→                    </Badge>
+  1058→  1058→                  )}
+  1059→  1059→                  <Button
+  1060→  1060→                    variant="ghost"
+  1061→  1061→                    size="sm"
+  1062→  1062→                    className="h-6 text-xs text-muted-foreground"
+  1063→  1063→                    onClick={clearAllFilters}
+  1064→  1064→                  >
+  1065→  1065→                    Clear all
+  1066→  1066→                  </Button>
+  1067→  1067→                </div>
+  1068→  1068→              )}
+  1069→  1069→
+  1070→  1070→              {/* Product Grid */}
+  1071→  1071→              {productsError ? (
+  1072→  1072→                <div className="flex flex-col items-center justify-center py-20 text-center">
+  1073→  1073→                  <p className="text-destructive font-medium mb-2">Failed to load products</p>
+  1074→  1074→                  <p className="text-muted-foreground text-sm mb-4">
+  1075→  1075→                    Something went wrong. Please try again.
+  1076→  1076→                  </p>
+  1077→  1077→                  <Button variant="outline" onClick={clearAllFilters}>
+  1078→  1078→                    Clear Filters & Retry
+  1079→  1079→                  </Button>
+  1080→  1080→                </div>
+  1081→  1081→              ) : productsLoading ? (
+  1082→  1082→                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+  1083→  1083→                  {Array.from({ length: 12 }).map((_, i) => (
+  1084→  1084→                    <ProductCardSkeleton key={i} />
+  1085→  1085→                  ))}
+  1086→  1086→                </div>
+  1087→  1087→              ) : products.length === 0 ? (
+  1088→  1088→                <EmptyState hasFilters={hasActiveFilters} onClear={clearAllFilters} />
+  1089→  1089→              ) : (
+  1090→  1090→                <AnimatePresence mode="wait">
+  1091→  1091→                  <motion.div
+  1092→  1092→                    key={JSON.stringify(queryParams)}
+  1093→  1093→                    variants={staggerContainer}
+  1094→  1094→                    initial="hidden"
+  1095→  1095→                    animate="visible"
+  1096→  1096→                    className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"
+  1097→  1097→                  >
+  1098→  1098→                    {products.map((product) => (
+  1099→  1099→                      <ProductCard key={product.id} product={product} />
+  1100→  1100→                    ))}
+  1101→  1101→                  </motion.div>
+  1102→  1102→                </AnimatePresence>
+  1103→  1103→              )}
+  1104→  1104→
+  1105→  1105→              {/* Pagination */}
+  1106→  1106→              {!productsLoading && totalPages > 1 && (
+  1107→  1107→                <div className="mt-8 flex justify-center">
+  1108→  1108→                  <Pagination>
+  1109→  1109→                    <PaginationContent>
+  1110→  1110→                      <PaginationItem>
+  1111→  1111→                        <PaginationPrevious
+  1112→  1112→                          className={
+  1113→  1113→                            currentPage <= 1
+  1114→  1114→                              ? 'pointer-events-none opacity-50'
+  1115→  1115→                              : 'cursor-pointer'
+  1116→  1116→                          }
+  1117→  1117→                          onClick={() =>
+  1118→  1118→                            setFilters((prev) => ({
+  1119→  1119→                              ...prev,
+  1120→  1120→                              page: Math.max(1, prev.page - 1),
+  1121→  1121→                            }))
+  1122→  1122→                          }
+  1123→  1123→                        />
+  1124→  1124→                      </PaginationItem>
+  1125→  1125→
+  1126→  1126→                      {generatePaginationPages(currentPage, totalPages).map(
+  1127→  1127→                        (page, idx) =>
+  1128→  1128→                          page === 'ellipsis' ? (
+  1129→  1129→                            <PaginationItem key={`ellipsis-${idx}`}>
+  1130→  1130→                              <PaginationEllipsis />
+  1131→  1131→                            </PaginationItem>
+  1132→  1132→                          ) : (
+  1133→  1133→                            <PaginationItem key={page}>
+  1134→  1134→                              <PaginationLink
+  1135→  1135→                                isActive={page === currentPage}
+  1136→  1136→                                className="cursor-pointer"
+  1137→  1137→                                onClick={() =>
+  1138→  1138→                                  setFilters((prev) => ({ ...prev, page }))
+  1139→  1139→                                }
+  1140→  1140→                              >
+  1141→  1141→                                {page}
+  1142→  1142→                              </PaginationLink>
+  1143→  1143→                            </PaginationItem>
+  1144→  1144→                          )
+  1145→  1145→                      )}
+  1146→  1146→
+  1147→  1147→                      <PaginationItem>
+  1148→  1148→                        <PaginationNext
+  1149→  1149→                          className={
+  1150→  1150→                            currentPage >= totalPages
+  1151→  1151→                              ? 'pointer-events-none opacity-50'
+  1152→  1152→                              : 'cursor-pointer'
+  1153→  1153→                          }
+  1154→  1154→                          onClick={() =>
+  1155→  1155→                            setFilters((prev) => ({
+  1156→  1156→                              ...prev,
+  1157→  1157→                              page: Math.min(totalPages, prev.page + 1),
+  1158→  1158→                            }))
+  1159→  1159→                          }
+  1160→  1160→                        />
+  1161→  1161→                      </PaginationItem>
+  1162→  1162→                    </PaginationContent>
+  1163→  1163→                  </Pagination>
+  1164→  1164→                </div>
+  1165→  1165→              )}
+  1166→  1166→            </main>
+  1167→  1167→          </div>
+  1168→  1168→        </div>
+  1169→  1169→      </div>
+  1170→  1170→    </div>
+  1171→  1171→  )
+  1172→  1172→}
+  1173→  1173→

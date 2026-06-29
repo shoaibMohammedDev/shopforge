@@ -1056,6 +1056,13 @@ export default function CheckoutPage() {
     }
   }, [items.length, currentStep, navigate])
 
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (!user) {
+      navigate('login')
+    }
+  }, [user, navigate])
+
   // Validate coupon on mount if we have one
   useEffect(() => {
     if (couponCode && !couponResult) {
@@ -1084,6 +1091,12 @@ export default function CheckoutPage() {
 
   const handlePaymentSubmit = useCallback(
     async (_data: PaymentFormValues) => {
+      if (!user?.id) {
+        setOrderError('Please sign in to place an order.')
+        navigate('login')
+        return
+      }
+
       setIsSubmitting(true)
       setOrderError(null)
 
@@ -1116,7 +1129,7 @@ export default function CheckoutPage() {
         }))
 
         const orderPayload = {
-          userId: user?.id || 'guest',
+          userId: user.id,
           items: orderItems,
           shippingAddress,
           billingAddress: shippingAddress,
@@ -1147,6 +1160,7 @@ export default function CheckoutPage() {
         setCurrentStep('confirmation')
         window.scrollTo({ top: 0, behavior: 'smooth' })
       } catch (error) {
+        console.error('Order creation error:', error)
         setOrderError(
           error instanceof Error ? error.message : 'Failed to place order. Please try again.'
         )
@@ -1154,7 +1168,7 @@ export default function CheckoutPage() {
         setIsSubmitting(false)
       }
     },
-    [items, shippingMethod, shippingAddress, couponResult, user, clearCart]
+    [items, shippingMethod, shippingAddress, couponResult, user, clearCart, navigate]
   )
 
   const handleBackToShipping = useCallback(() => {

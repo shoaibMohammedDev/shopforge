@@ -376,7 +376,7 @@ function RelatedProductCard({ product }: { product: ProductListItem }) {
           )}
           {discount > 0 && (
             <Badge className="absolute top-2 left-2 bg-red-500 text-white text-[10px] px-1.5">
-              -{discount}%
+              {`-${discount}%`}
             </Badge>
           )}
         </div>
@@ -836,7 +836,7 @@ export default function ProductDetailPage() {
                         {formatPrice(currentComparePrice)}
                       </span>
                       <Badge variant="destructive" className="text-xs">
-                        -{discount}% OFF
+                        {`-${discount}% OFF`}
                       </Badge>
                     </>
                   )}

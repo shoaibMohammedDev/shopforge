@@ -47,6 +47,7 @@ import {
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
@@ -69,6 +70,32 @@ import {
   PaginationPrevious,
   PaginationEllipsis,
 } from '@/components/ui/pagination'
+
+// ============================================================================
+// Star Rating Component
+// ============================================================================
+
+function StarRating({ rating, count }: { rating: number; count?: number }) {
+  return (
+    <div className="flex items-center gap-1">
+      <div className="flex">
+        {[1, 2, 3, 4, 5].map((star) => (
+          <Star
+            key={star}
+            className={`h-3.5 w-3.5 ${
+              star <= Math.round(rating)
+                ? 'text-amber-400 fill-amber-400'
+                : 'text-gray-300'
+            }`}
+          />
+        ))}
+      </div>
+      {count !== undefined && (
+        <span className="text-xs text-muted-foreground">({count})</span>
+      )}
+    </div>
+  )
+}
 
 // ============================================================================
 // Animation Variants
@@ -428,7 +455,7 @@ function ProductCard({ product }: { product: ProductListItem }) {
     : 0
 
   const displayPrice =
-    product.flashSales?.[0]?.salePrice ?? product.price
+    product.flashSaleProduct?.salePrice ?? product.price
 
   const totalInventory = product.inventory.reduce(
     (sum, inv) => sum + inv.quantity - inv.reserved,
@@ -495,7 +522,7 @@ function ProductCard({ product }: { product: ProductListItem }) {
           )}
 
           {/* Flash sale badge */}
-          {product.flashSales && product.flashSales.length > 0 && (
+          {product.flashSaleProduct && product.flashSaleProduct.flashSale?.isActive && (
             <Badge className="absolute top-2 left-2 bg-orange-500 text-white hover:bg-orange-600 border-0 text-xs gap-1">
               <Zap className="size-3" /> Flash
             </Badge>
@@ -542,29 +569,13 @@ function ProductCard({ product }: { product: ProductListItem }) {
           </h3>
 
           {/* Rating */}
-          <div className="flex items-center gap-1">
-            <div className="flex items-center">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Star
-                  key={i}
-                  className={`size-3.5 ${
-                    i < Math.round(product.avgRating)
-                      ? 'fill-amber-400 text-amber-400'
-                      : 'text-slate-300 dark:text-slate-600'
-                  }`}
-                />
-              ))}
-            </div>
-            <span className="text-xs text-muted-foreground">
-              ({product.reviewCount})
-            </span>
-          </div>
+          <StarRating rating={product.avgRating} count={product.reviewCount} />
 
           {/* Price */}
           <div className="flex items-baseline gap-2">
             <span
               className={`font-semibold ${
-                product.flashSales && product.flashSales.length > 0
+                product.flashSaleProduct && product.flashSaleProduct.flashSale?.isActive
                   ? 'text-red-600 dark:text-red-400'
                   : ''
               }`}
@@ -899,26 +910,27 @@ export default function ProductsPage() {
                         )}
                       </Button>
                     </SheetTrigger>
-                    <SheetContent side="left" className="w-[320px] sm:w-[380px]">
-                      <SheetHeader>
+                    <SheetContent side="left" className="w-[320px] sm:w-[380px] p-0 flex flex-col">
+                      <SheetHeader className="px-4 pt-4 pb-2">
                         <SheetTitle className="flex items-center gap-2">
                           <SlidersHorizontal className="size-5" />
                           Filter Products
                         </SheetTitle>
+                        <SheetDescription className="sr-only">
+                          Filter products by category, brand, price, and rating
+                        </SheetDescription>
                       </SheetHeader>
-                      <ScrollArea className="h-[calc(100vh-10rem)] pr-2">
-                        <div className="py-4">
-                          <FilterSidebarContent
-                            filters={filters}
-                            setFilters={setFilters}
-                            categories={categories}
-                            brands={brands}
-                            categoriesLoading={categoriesLoading}
-                            brandsLoading={brandsLoading}
-                            onClose={() => setMobileFiltersOpen(false)}
-                          />
-                        </div>
-                      </ScrollArea>
+                      <div className="flex-1 overflow-y-auto px-4 pb-4">
+                        <FilterSidebarContent
+                          filters={filters}
+                          setFilters={setFilters}
+                          categories={categories}
+                          brands={brands}
+                          categoriesLoading={categoriesLoading}
+                          brandsLoading={brandsLoading}
+                          onClose={() => setMobileFiltersOpen(false)}
+                        />
+                      </div>
                     </SheetContent>
                   </Sheet>
                 )}

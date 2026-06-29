@@ -199,7 +199,7 @@ function CartItemRow({
   onRemove: (productId: string, variantId?: string) => void
 }) {
   return (
-    <TableRow>
+    <>
       <TableCell className="py-4">
         <div className="flex items-center gap-4">
           <ProductImagePlaceholder
@@ -247,7 +247,7 @@ function CartItemRow({
           <Trash2 className="h-4 w-4" />
         </Button>
       </TableCell>
-    </TableRow>
+    </>
   )
 }
 
@@ -350,7 +350,6 @@ function OrderSummary({
   const handleApplyCoupon = useCallback(() => {
     if (couponInput.trim()) {
       onApplyCoupon(couponInput.trim())
-      setCouponInput('')
     }
   }, [couponInput, onApplyCoupon])
 
@@ -421,7 +420,7 @@ function OrderSummary({
                   size="sm"
                   className="h-9 px-4"
                   onClick={handleApplyCoupon}
-                  disabled={couponLoading || !couponInput.trim()}
+                  disabled={couponLoading || couponInput.trim().length === 0}
                 >
                   {couponLoading ? (
                     <Loader2 className="h-4 w-4 animate-spin" />

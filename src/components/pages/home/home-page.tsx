@@ -51,6 +51,32 @@ import {
 } from '@/components/ui/carousel'
 
 // ============================================================================
+// Star Rating Component
+// ============================================================================
+
+function StarRating({ rating, count }: { rating: number; count?: number }) {
+  return (
+    <div className="flex items-center gap-1">
+      <div className="flex">
+        {[1, 2, 3, 4, 5].map((star) => (
+          <Star
+            key={star}
+            className={`h-3.5 w-3.5 ${
+              star <= Math.round(rating)
+                ? 'text-amber-400 fill-amber-400'
+                : 'text-gray-300'
+            }`}
+          />
+        ))}
+      </div>
+      {count !== undefined && (
+        <span className="text-xs text-muted-foreground">({count})</span>
+      )}
+    </div>
+  )
+}
+
+// ============================================================================
 // Animation Variants
 // ============================================================================
 
@@ -180,7 +206,7 @@ function ProductCard({ product }: { product: ProductListItem }) {
     : 0
 
   const displayPrice =
-    product.flashSales?.[0]?.salePrice ?? product.price
+    product.flashSaleProduct?.salePrice ?? product.price
 
   const handleAddToCart = useCallback(
     (e: React.MouseEvent) => {
@@ -241,7 +267,7 @@ function ProductCard({ product }: { product: ProductListItem }) {
           )}
 
           {/* Flash sale badge */}
-          {product.flashSales && product.flashSales.length > 0 && (
+          {product.flashSaleProduct && product.flashSaleProduct.flashSale?.isActive && (
             <Badge className="absolute top-2 left-2 bg-orange-500 text-white hover:bg-orange-600 border-0 text-xs gap-1">
               <Zap className="size-3" /> Flash
             </Badge>
@@ -279,29 +305,13 @@ function ProductCard({ product }: { product: ProductListItem }) {
           </h3>
 
           {/* Rating */}
-          <div className="flex items-center gap-1">
-            <div className="flex items-center">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Star
-                  key={i}
-                  className={`size-3.5 ${
-                    i < Math.round(product.avgRating)
-                      ? 'fill-amber-400 text-amber-400'
-                      : 'text-slate-300 dark:text-slate-600'
-                  }`}
-                />
-              ))}
-            </div>
-            <span className="text-xs text-muted-foreground">
-              ({product.reviewCount})
-            </span>
-          </div>
+          <StarRating rating={product.avgRating} count={product.reviewCount} />
 
           {/* Price */}
           <div className="flex items-baseline gap-2">
             <span
               className={`font-semibold ${
-                product.flashSales && product.flashSales.length > 0 ? 'text-red-600 dark:text-red-400' : ''
+                product.flashSaleProduct && product.flashSaleProduct.flashSale?.isActive ? 'text-red-600 dark:text-red-400' : ''
               }`}
             >
               {formatPrice(displayPrice)}
@@ -441,11 +451,10 @@ export default function HomePage() {
     },
   })
 
-  const { data: bestSellerData, isLoading: bestSellerLoading } = useQuery({
-    queryKey: ['products', 'best-seller'],
+  const { data: flashSaleData, isLoading: bestSellerLoading } = useQuery({
+    queryKey: ['products', 'flash-sale'],
     queryFn: async () => {
       const res = await api.get<PaginatedResponse<ProductListItem>>('/products', {
-        tag: 'best-seller',
         limit: 20,
       })
       return res.success ? res.data : null
@@ -468,11 +477,11 @@ export default function HomePage() {
     },
   })
 
-  // Filter flash sale items
+  // Filter flash sale items from all products
   const flashSaleProducts = useMemo(() => {
-    if (!bestSellerData?.items) return []
-    return bestSellerData.items.filter((p) => p.flashSales && p.flashSales.length > 0)
-  }, [bestSellerData])
+    if (!flashSaleData?.items) return []
+    return flashSaleData.items.filter((p) => p.flashSaleProduct && p.flashSaleProduct.flashSale?.isActive)
+  }, [flashSaleData])
 
   // Take up to 8 categories for the grid
   const displayCategories = useMemo(() => {

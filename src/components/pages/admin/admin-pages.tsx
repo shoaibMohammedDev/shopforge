@@ -181,15 +181,24 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge variant={getStatusBadgeVariant(status)}>{status}</Badge>
 }
 
-function renderStars(rating: number) {
+function StarRating({ rating, count }: { rating: number; count?: number }) {
   return (
-    <div className="flex items-center gap-0.5">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <Star
-          key={i}
-          className={`h-3.5 w-3.5 ${i < rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`}
-        />
-      ))}
+    <div className="flex items-center gap-1">
+      <div className="flex">
+        {[1, 2, 3, 4, 5].map((star) => (
+          <Star
+            key={star}
+            className={`h-3.5 w-3.5 ${
+              star <= Math.round(rating)
+                ? 'text-amber-400 fill-amber-400'
+                : 'text-gray-300'
+            }`}
+          />
+        ))}
+      </div>
+      {count !== undefined && (
+        <span className="text-xs text-muted-foreground">({count})</span>
+      )}
     </div>
   )
 }
@@ -346,7 +355,7 @@ function AdminLayout({ children, title }: { children: React.ReactNode; title: st
 // AdminDashboardPage
 // ============================================================================
 
-export function AdminDashboardPage() {
+function AdminDashboardContent() {
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -382,7 +391,7 @@ export function AdminDashboardPage() {
 
   if (loading) {
     return (
-      <AdminLayout title="Dashboard">
+      <>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-32 rounded-xl" />
@@ -392,13 +401,13 @@ export function AdminDashboardPage() {
           <Skeleton className="h-80 rounded-xl" />
           <Skeleton className="h-80 rounded-xl" />
         </div>
-      </AdminLayout>
+      </>
     )
   }
 
   if (!stats) {
     return (
-      <AdminLayout title="Dashboard">
+      <>
         <Card className="mx-auto max-w-md">
           <CardHeader className="text-center">
             <AlertTriangle className="mx-auto h-10 w-10 text-yellow-500" />
@@ -406,7 +415,7 @@ export function AdminDashboardPage() {
             <CardDescription>Please try refreshing the page.</CardDescription>
           </CardHeader>
         </Card>
-      </AdminLayout>
+      </>
     )
   }
 
@@ -450,7 +459,7 @@ export function AdminDashboardPage() {
   ]
 
   return (
-    <AdminLayout title="Dashboard">
+    <>
       {/* Stat cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {statCards.map((card) => (
@@ -501,7 +510,7 @@ export function AdminDashboardPage() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="month" tickLine={false} axisLine={false} fontSize={12} />
-                <YAxis tickLine={false} axisLine={false} fontSize={12} tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} />
+                <YAxis tickLine={false} axisLine={false} fontSize={12} tickFormatter={(v: number) => `$${(v / 1000).toFixed(1)}k`} />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 <Area
                   type="monotone"
@@ -650,7 +659,7 @@ export function AdminDashboardPage() {
           </CardContent>
         </Card>
       </div>
-    </AdminLayout>
+    </>
   )
 }
 
@@ -672,7 +681,7 @@ interface AdminProduct {
   inventory: { quantity: number; reserved: number }[]
 }
 
-export function AdminProductsPage() {
+function AdminProductsContent() {
   const { navigate } = useRouterStore()
   const [products, setProducts] = useState<AdminProduct[]>([])
   const [loading, setLoading] = useState(true)
@@ -787,7 +796,7 @@ export function AdminProductsPage() {
   }
 
   return (
-    <AdminLayout title="Products">
+    <>
       {/* Header bar */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div className="relative flex-1 max-w-md">
@@ -1033,7 +1042,7 @@ export function AdminProductsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </AdminLayout>
+    </>
   )
 }
 
@@ -1052,7 +1061,7 @@ interface AdminOrder {
   payment: { status: string; method: string } | null
 }
 
-export function AdminOrdersPage() {
+function AdminOrdersContent() {
   const { navigate } = useRouterStore()
   const [orders, setOrders] = useState<AdminOrder[]>([])
   const [loading, setLoading] = useState(true)
@@ -1109,7 +1118,7 @@ export function AdminOrdersPage() {
   const orderStatuses = ['ALL', 'PENDING', 'PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED']
 
   return (
-    <AdminLayout title="Orders">
+    <>
       {/* Filter tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
         <TabsList className="flex-wrap h-auto gap-1">
@@ -1241,7 +1250,7 @@ export function AdminOrdersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </AdminLayout>
+    </>
   )
 }
 
@@ -1260,7 +1269,7 @@ interface AdminCustomer {
   orders: { totalAmount: number }[]
 }
 
-export function AdminCustomersPage() {
+function AdminCustomersContent() {
   const [customers, setCustomers] = useState<AdminCustomer[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -1309,7 +1318,7 @@ export function AdminCustomersPage() {
   )
 
   return (
-    <AdminLayout title="Customers">
+    <>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -1454,7 +1463,7 @@ export function AdminCustomersPage() {
           )}
         </DialogContent>
       </Dialog>
-    </AdminLayout>
+    </>
   )
 }
 
@@ -1462,7 +1471,7 @@ export function AdminCustomersPage() {
 // AdminCouponsPage
 // ============================================================================
 
-export function AdminCouponsPage() {
+function AdminCouponsContent() {
   const [coupons, setCoupons] = useState<CouponDisplay[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
@@ -1569,7 +1578,7 @@ export function AdminCouponsPage() {
   }
 
   return (
-    <AdminLayout title="Coupons">
+    <>
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-lg font-semibold text-gray-700">
           {coupons.length} coupon{coupons.length !== 1 ? 's' : ''}
@@ -1777,7 +1786,7 @@ export function AdminCouponsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </AdminLayout>
+    </>
   )
 }
 
@@ -1796,7 +1805,7 @@ interface AdminReview {
   product: { name: string; images: string }
 }
 
-export function AdminReviewsPage() {
+function AdminReviewsContent() {
   const [reviews, setReviews] = useState<AdminReview[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('ALL')
@@ -1872,7 +1881,7 @@ export function AdminReviewsPage() {
   })
 
   return (
-    <AdminLayout title="Reviews">
+    <>
       <Tabs value={filter} onValueChange={(v) => setFilter(v as typeof filter)} className="mb-6">
         <TabsList>
           <TabsTrigger value="ALL">All</TabsTrigger>
@@ -1918,7 +1927,7 @@ export function AdminReviewsPage() {
                       <TableCell className="text-sm text-gray-600">
                         {review.user?.name || review.user?.email || 'Anonymous'}
                       </TableCell>
-                      <TableCell>{renderStars(review.rating)}</TableCell>
+                      <TableCell><StarRating rating={review.rating} /></TableCell>
                       <TableCell className="hidden md:table-cell text-sm text-gray-500 max-w-[200px] truncate">
                         {review.title || '—'}
                       </TableCell>
@@ -1961,7 +1970,7 @@ export function AdminReviewsPage() {
           )}
         </CardContent>
       </Card>
-    </AdminLayout>
+    </>
   )
 }
 
@@ -1977,7 +1986,7 @@ interface StoreSettings {
   [key: string]: unknown
 }
 
-export function AdminSettingsPage() {
+function AdminSettingsContent() {
   const [settings, setSettings] = useState<StoreSettings>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -2025,18 +2034,18 @@ export function AdminSettingsPage() {
 
   if (loading) {
     return (
-      <AdminLayout title="Settings">
+      <>
         <div className="max-w-2xl space-y-6">
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-20 rounded-xl" />
           ))}
         </div>
-      </AdminLayout>
+      </>
     )
   }
 
   return (
-    <AdminLayout title="Settings">
+    <>
       <div className="max-w-2xl">
         <Card>
           <CardHeader>
@@ -2130,6 +2139,65 @@ export function AdminSettingsPage() {
           </CardContent>
         </Card>
       </div>
+    </>
+  )
+}
+
+// ============================================================================
+// AdminPage - Single entry point that renders layout + content
+// ============================================================================
+
+function getAdminTitle(route: RoutePath): string {
+  switch (route) {
+    case 'admin':
+    case 'admin-analytics':
+    case 'admin-banners':
+      return 'Dashboard'
+    case 'admin-products':
+      return 'Products'
+    case 'admin-orders':
+      return 'Orders'
+    case 'admin-customers':
+      return 'Customers'
+    case 'admin-coupons':
+      return 'Coupons'
+    case 'admin-reviews':
+      return 'Reviews'
+    case 'admin-settings':
+      return 'Settings'
+    default:
+      return 'Dashboard'
+  }
+}
+
+export function AdminPage() {
+  const currentRoute = useRouterStore((s) => s.currentRoute)
+
+  const renderContent = () => {
+    switch (currentRoute) {
+      case 'admin-products':
+        return <AdminProductsContent />
+      case 'admin-orders':
+        return <AdminOrdersContent />
+      case 'admin-customers':
+        return <AdminCustomersContent />
+      case 'admin-coupons':
+        return <AdminCouponsContent />
+      case 'admin-reviews':
+        return <AdminReviewsContent />
+      case 'admin-settings':
+        return <AdminSettingsContent />
+      case 'admin':
+      case 'admin-analytics':
+      case 'admin-banners':
+      default:
+        return <AdminDashboardContent />
+    }
+  }
+
+  return (
+    <AdminLayout title={getAdminTitle(currentRoute)}>
+      {renderContent()}
     </AdminLayout>
   )
 }

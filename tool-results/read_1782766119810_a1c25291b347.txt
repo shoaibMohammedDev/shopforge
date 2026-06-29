@@ -1,0 +1,577 @@
+     1→     1→import { PrismaClient } from '@prisma/client'
+     2→     2→import { createHash } from 'crypto'
+     3→     3→
+     4→     4→const prisma = new PrismaClient()
+     5→     5→
+     6→     6→// Helper to hash passwords simply (in production use bcrypt)
+     7→     7→function simpleHash(str: string): string {
+     8→     8→  return createHash('sha256').update(str).digest('hex')
+     9→     9→}
+    10→    10→
+    11→    11→async function main() {
+    12→    12→  console.log('🌱 Seeding database...')
+    13→    13→
+    14→    14→  // ============================================================================
+    15→    15→  // CATEGORIES
+    16→    16→  // ============================================================================
+    17→    17→  const categories = await Promise.all([
+    18→    18→    prisma.category.upsert({ where: { slug: 'electronics' }, update: {}, create: { name: 'Electronics', slug: 'electronics', description: 'Latest gadgets, phones, laptops, and more', sortOrder: 1 }}),
+    19→    19→    prisma.category.upsert({ where: { slug: 'clothing' }, update: {}, create: { name: 'Clothing', slug: 'clothing', description: 'Fashion for men, women, and kids', sortOrder: 2 }}),
+    20→    20→    prisma.category.upsert({ where: { slug: 'home-kitchen' }, update: {}, create: { name: 'Home & Kitchen', slug: 'home-kitchen', description: 'Everything for your home', sortOrder: 3 }}),
+    21→    21→    prisma.category.upsert({ where: { slug: 'sports' }, update: {}, create: { name: 'Sports & Outdoors', slug: 'sports', description: 'Gear up for adventure', sortOrder: 4 }}),
+    22→    22→    prisma.category.upsert({ where: { slug: 'books' }, update: {}, create: { name: 'Books', slug: 'books', description: 'Best sellers and new releases', sortOrder: 5 }}),
+    23→    23→    prisma.category.upsert({ where: { slug: 'beauty' }, update: {}, create: { name: 'Beauty & Personal Care', slug: 'beauty', description: 'Skincare, makeup, and wellness', sortOrder: 6 }}),
+    24→    24→    prisma.category.upsert({ where: { slug: 'toys' }, update: {}, create: { name: 'Toys & Games', slug: 'toys', description: 'Fun for all ages', sortOrder: 7 }}),
+    25→    25→    prisma.category.upsert({ where: { slug: 'automotive' }, update: {}, create: { name: 'Automotive', slug: 'automotive', description: 'Car accessories and parts', sortOrder: 8 }}),
+    26→    26→  ])
+    27→    27→
+    28→    28→  // Sub-categories
+    29→    29→  const subCategories = await Promise.all([
+    30→    30→    prisma.category.upsert({ where: { slug: 'smartphones' }, update: {}, create: { name: 'Smartphones', slug: 'smartphones', parentId: categories[0].id, sortOrder: 1 }}),
+    31→    31→    prisma.category.upsert({ where: { slug: 'laptops' }, update: {}, create: { name: 'Laptops', slug: 'laptops', parentId: categories[0].id, sortOrder: 2 }}),
+    32→    32→    prisma.category.upsert({ where: { slug: 'headphones' }, update: {}, create: { name: 'Headphones', slug: 'headphones', parentId: categories[0].id, sortOrder: 3 }}),
+    33→    33→    prisma.category.upsert({ where: { slug: 'tablets' }, update: {}, create: { name: 'Tablets', slug: 'tablets', parentId: categories[0].id, sortOrder: 4 }}),
+    34→    34→    prisma.category.upsert({ where: { slug: 'mens-clothing' }, update: {}, create: { name: "Men's Clothing", slug: 'mens-clothing', parentId: categories[1].id, sortOrder: 1 }}),
+    35→    35→    prisma.category.upsert({ where: { slug: 'womens-clothing' }, update: {}, create: { name: "Women's Clothing", slug: 'womens-clothing', parentId: categories[1].id, sortOrder: 2 }}),
+    36→    36→  ])
+    37→    37→
+    38→    38→  // ============================================================================
+    39→    39→  // BRANDS
+    40→    40→  // ============================================================================
+    41→    41→  const brands = await Promise.all([
+    42→    42→    prisma.brand.upsert({ where: { slug: 'apple' }, update: {}, create: { name: 'Apple', slug: 'apple', description: 'Think Different' }}),
+    43→    43→    prisma.brand.upsert({ where: { slug: 'samsung' }, update: {}, create: { name: 'Samsung', slug: 'samsung', description: 'Galaxy of possibilities' }}),
+    44→    44→    prisma.brand.upsert({ where: { slug: 'sony' }, update: {}, create: { name: 'Sony', slug: 'sony', description: 'Be Moved' }}),
+    45→    45→    prisma.brand.upsert({ where: { slug: 'nike' }, update: {}, create: { name: 'Nike', slug: 'nike', description: 'Just Do It' }}),
+    46→    46→    prisma.brand.upsert({ where: { slug: 'adidas' }, update: {}, create: { name: 'Adidas', slug: 'adidas', description: 'Impossible Is Nothing' }}),
+    47→    47→    prisma.brand.upsert({ where: { slug: 'kitchenaid' }, update: {}, create: { name: 'KitchenAid', slug: 'kitchenaid', description: 'For the way it\'s made' }}),
+    48→    48→    prisma.brand.upsert({ where: { slug: 'bose' }, update: {}, create: { name: 'Bose', slug: 'bose', description: 'Better sound through research' }}),
+    49→    49→    prisma.brand.upsert({ where: { slug: 'dell' }, update: {}, create: { name: 'Dell', slug: 'dell', description: 'The power to do more' }}),
+    50→    50→  ])
+    51→    51→
+    52→    52→  // ============================================================================
+    53→    53→  // ADMIN USER
+    54→    54→  // ============================================================================
+    55→    55→  const adminUser = await prisma.user.upsert({
+    56→    56→    where: { email: 'admin@shopforge.com' },
+    57→    57→    update: {},
+    58→    58→    create: {
+    59→    59→      email: 'admin@shopforge.com',
+    60→    60→      name: 'Admin User',
+    61→    61→      passwordHash: simpleHash('admin123'),
+    62→    62→      role: 'ADMIN',
+    63→    63→      emailVerified: true,
+    64→    64→    },
+    65→    65→  })
+    66→    66→
+    67→    67→  // Customer users
+    68→    68→  const customer1 = await prisma.user.upsert({
+    69→    69→    where: { email: 'john@example.com' },
+    70→    70→    update: {},
+    71→    71→    create: {
+    72→    72→      email: 'john@example.com',
+    73→    73→      name: 'John Doe',
+    74→    74→      passwordHash: simpleHash('password123'),
+    75→    75→      role: 'CUSTOMER',
+    76→    76→      emailVerified: true,
+    77→    77→    },
+    78→    78→  })
+    79→    79→
+    80→    80→  const customer2 = await prisma.user.upsert({
+    81→    81→    where: { email: 'jane@example.com' },
+    82→    82→    update: {},
+    83→    83→    create: {
+    84→    84→      email: 'jane@example.com',
+    85→    85→      name: 'Jane Smith',
+    86→    86→      passwordHash: simpleHash('password123'),
+    87→    87→      role: 'CUSTOMER',
+    88→    88→      emailVerified: true,
+    89→    89→    },
+    90→    90→  })
+    91→    91→
+    92→    92→  // ============================================================================
+    93→    93→  // PRODUCTS
+    94→    94→  // ============================================================================
+    95→    95→  const smartphoneCat = subCategories[0]
+    96→    96→  const laptopCat = subCategories[1]
+    97→    97→  const headphonesCat = subCategories[2]
+    98→    98→  const tabletCat = subCategories[3]
+    99→    99→
+   100→   100→  const products = await Promise.all([
+   101→   101→    prisma.product.create({
+   102→   102→      data: {
+   103→   103→        name: 'iPhone 16 Pro Max',
+   104→   104→        slug: 'iphone-16-pro-max',
+   105→   105→        description: 'The most advanced iPhone ever. Featuring the A18 Pro chip, a 48MP camera system, and a stunning 6.9-inch Super Retina XDR display. Built with Grade 5 titanium and ceramic shield front for incredible durability. Capture spatial photos and videos, and experience all-day battery life.',
+   106→   106→        shortDesc: 'A18 Pro chip, 48MP camera, titanium design',
+   107→   107→        sku: 'APL-IP16PM-001',
+   108→   108→        price: 1199.00,
+   109→   109→        comparePrice: 1299.00,
+   110→   110→        costPrice: 850.00,
+   111→   111→        images: JSON.stringify(['/products/iphone16-1.jpg', '/products/iphone16-2.jpg', '/products/iphone16-3.jpg']),
+   112→   112→        isFeatured: true,
+   113→   113→        isActive: true,
+   114→   114→        weight: 0.227,
+   115→   115→        categoryId: smartphoneCat.id,
+   116→   116→        brandId: brands[0].id,
+   117→   117→        avgRating: 4.8,
+   118→   118→        reviewCount: 234,
+   119→   119→        totalSold: 1520,
+   120→   120→      },
+   121→   121→    }),
+   122→   122→    prisma.product.create({
+   123→   123→      data: {
+   124→   124→        name: 'Samsung Galaxy S24 Ultra',
+   125→   125→        slug: 'samsung-galaxy-s24-ultra',
+   126→   126→        description: 'The ultimate Galaxy experience with Galaxy AI. Features a 6.8-inch Dynamic AMOLED display, 200MP camera, and the powerful Snapdragon 8 Gen 3 processor. Includes the iconic built-in S Pen for productivity and creativity.',
+   127→   127→        shortDesc: 'Galaxy AI, 200MP camera, S Pen included',
+   128→   128→        sku: 'SAM-S24U-001',
+   129→   129→        price: 1299.99,
+   130→   130→        comparePrice: 1419.99,
+   131→   131→        costPrice: 900.00,
+   132→   132→        images: JSON.stringify(['/products/s24ultra-1.jpg', '/products/s24ultra-2.jpg', '/products/s24ultra-3.jpg']),
+   133→   133→        isFeatured: true,
+   134→   134→        isActive: true,
+   135→   135→        weight: 0.232,
+   136→   136→        categoryId: smartphoneCat.id,
+   137→   137→        brandId: brands[1].id,
+   138→   138→        avgRating: 4.6,
+   139→   139→        reviewCount: 189,
+   140→   140→        totalSold: 980,
+   141→   141→      },
+   142→   142→    }),
+   143→   143→    prisma.product.create({
+   144→   144→      data: {
+   145→   145→        name: 'MacBook Pro 16" M4 Max',
+   146→   146→        slug: 'macbook-pro-16-m4-max',
+   147→   147→        description: 'Supercharged by M4 Max. The most powerful MacBook Pro ever with up to 48GB unified memory, 40-core GPU, and up to 22 hours of battery life. Features a stunning 16.2-inch Liquid Retina XDR display with ProMotion technology.',
+   148→   148→        shortDesc: 'M4 Max chip, 48GB RAM, 22hr battery',
+   149→   149→        sku: 'APL-MBP16M4-001',
+   150→   150→        price: 3499.00,
+   151→   151→        comparePrice: 3699.00,
+   152→   152→        costPrice: 2400.00,
+   153→   153→        images: JSON.stringify(['/products/mbp16-1.jpg', '/products/mbp16-2.jpg', '/products/mbp16-3.jpg']),
+   154→   154→        isFeatured: true,
+   155→   155→        isActive: true,
+   156→   156→        weight: 2.14,
+   157→   157→        categoryId: laptopCat.id,
+   158→   158→        brandId: brands[0].id,
+   159→   159→        avgRating: 4.9,
+   160→   160→        reviewCount: 156,
+   161→   161→        totalSold: 640,
+   162→   162→      },
+   163→   163→    }),
+   164→   164→    prisma.product.create({
+   165→   165→      data: {
+   166→   166→        name: 'Sony WH-1000XM5',
+   167→   167→        slug: 'sony-wh-1000xm5',
+   168→   168→        description: 'Industry-leading noise cancellation with Auto NC Optimizer. Crystal clear hands-free calling with 4 beamforming microphones. Up to 30 hours of battery life with quick charging. Multipoint connection for seamless switching between devices.',
+   169→   169→        shortDesc: 'Best-in-class ANC, 30hr battery, multipoint',
+   170→   170→        sku: 'SNY-WH1000XM5-001',
+   171→   171→        price: 349.99,
+   172→   172→        comparePrice: 399.99,
+   173→   173→        costPrice: 180.00,
+   174→   174→        images: JSON.stringify(['/products/xm5-1.jpg', '/products/xm5-2.jpg', '/products/xm5-3.jpg']),
+   175→   175→        isFeatured: true,
+   176→   176→        isActive: true,
+   177→   177→        weight: 0.250,
+   178→   178→        categoryId: headphonesCat.id,
+   179→   179→        brandId: brands[2].id,
+   180→   180→        avgRating: 4.7,
+   181→   181→        reviewCount: 412,
+   182→   182→        totalSold: 2800,
+   183→   183→      },
+   184→   184→    }),
+   185→   185→    prisma.product.create({
+   186→   186→      data: {
+   187→   187→        name: 'iPad Pro 13" M4',
+   188→   188→        slug: 'ipad-pro-13-m4',
+   189→   189→        description: 'The thinnest, most advanced iPad ever with the M4 chip and a stunning 13-inch Ultra Retina XDR tandem OLED display. Compatible with Apple Pencil Pro and Magic Keyboard for the ultimate creative and productivity experience.',
+   190→   190→        shortDesc: 'M4 chip, OLED display, Apple Pencil Pro',
+   191→   191→        sku: 'APL-IPP13M4-001',
+   192→   192→        price: 1099.00,
+   193→   193→        comparePrice: 1199.00,
+   194→   194→        costPrice: 700.00,
+   195→   195→        images: JSON.stringify(['/products/ipadpro-1.jpg', '/products/ipadpro-2.jpg', '/products/ipadpro-3.jpg']),
+   196→   196→        isFeatured: false,
+   197→   197→        isActive: true,
+   198→   198→        weight: 0.579,
+   199→   199→        categoryId: tabletCat.id,
+   200→   200→        brandId: brands[0].id,
+   201→   201→        avgRating: 4.7,
+   202→   202→        reviewCount: 98,
+   203→   203→        totalSold: 520,
+   204→   204→      },
+   205→   205→    }),
+   206→   206→    prisma.product.create({
+   207→   207→      data: {
+   208→   208→        name: 'Nike Air Max 90',
+   209→   209→        slug: 'nike-air-max-90',
+   210→   210→        description: 'An icon of street style, the Nike Air Max 90 stays true to its OG running roots with the iconic Waffle sole, stitched overlays, and classic TPU details. Available in a wide range of colorways to fit your style.',
+   211→   211→        shortDesc: 'Classic street style icon, visible Air cushioning',
+   212→   212→        sku: 'NK-AM90-001',
+   213→   213→        price: 130.00,
+   214→   214→        comparePrice: 150.00,
+   215→   215→        costPrice: 55.00,
+   216→   216→        images: JSON.stringify(['/products/am90-1.jpg', '/products/am90-2.jpg', '/products/am90-3.jpg']),
+   217→   217→        isFeatured: false,
+   218→   218→        isActive: true,
+   219→   219→        weight: 0.4,
+   220→   220→        categoryId: categories[3].id,
+   221→   221→        brandId: brands[3].id,
+   222→   222→        avgRating: 4.5,
+   223→   223→        reviewCount: 567,
+   224→   224→        totalSold: 4200,
+   225→   225→      },
+   226→   226→    }),
+   227→   227→    prisma.product.create({
+   228→   228→      data: {
+   229→   229→        name: 'Dell XPS 15',
+   230→   230→        slug: 'dell-xps-15',
+   231→   231→        description: 'Premium performance in a stunning design. Features a 15.6-inch OLED display, Intel Core i9 processor, NVIDIA RTX 4070 graphics, and up to 32GB RAM. The infinityEdge display delivers a virtually borderless viewing experience.',
+   232→   232→        shortDesc: 'OLED display, i9, RTX 4070, premium build',
+   233→   233→        sku: 'DEL-XPS15-001',
+   234→   234→        price: 1999.99,
+   235→   235→        comparePrice: 2199.99,
+   236→   236→        costPrice: 1350.00,
+   237→   237→        images: JSON.stringify(['/products/xps15-1.jpg', '/products/xps15-2.jpg', '/products/xps15-3.jpg']),
+   238→   238→        isFeatured: false,
+   239→   239→        isActive: true,
+   240→   240→        weight: 1.86,
+   241→   241→        categoryId: laptopCat.id,
+   242→   242→        brandId: brands[7].id,
+   243→   243→        avgRating: 4.4,
+   244→   244→        reviewCount: 203,
+   245→   245→        totalSold: 780,
+   246→   246→      },
+   247→   247→    }),
+   248→   248→    prisma.product.create({
+   249→   249→      data: {
+   250→   250→        name: 'Bose QuietComfort Ultra',
+   251→   251→        slug: 'bose-quietcomfort-ultra',
+   252→   252→        description: 'World-class noise cancellation meets spatial audio. The QuietComfort Ultra headphones deliver immersive sound with Bose Immersive Audio. CustomTune technology personalizes sound and noise cancellation to your unique ear shape.',
+   253→   253→        shortDesc: 'Immersive Audio, CustomTune, world-class ANC',
+   254→   254→        sku: 'BSE-QCU-001',
+   255→   255→        price: 429.00,
+   256→   256→        comparePrice: 449.00,
+   257→   257→        costPrice: 220.00,
+   258→   258→        images: JSON.stringify(['/products/qcultra-1.jpg', '/products/qcultra-2.jpg', '/products/qcultra-3.jpg']),
+   259→   259→        isFeatured: false,
+   260→   260→        isActive: true,
+   261→   261→        weight: 0.250,
+   262→   262→        categoryId: headphonesCat.id,
+   263→   263→        brandId: brands[6].id,
+   264→   264→        avgRating: 4.5,
+   265→   265→        reviewCount: 321,
+   266→   266→        totalSold: 1950,
+   267→   267→      },
+   268→   268→    }),
+   269→   269→    prisma.product.create({
+   270→   270→      data: {
+   271→   271→        name: 'KitchenAid Artisan Stand Mixer',
+   272→   272→        slug: 'kitchenaid-artisan-stand-mixer',
+   273→   273→        description: 'The iconic KitchenAid Artisan Series stand mixer with 5-quart stainless steel bowl. 10 mixing speeds and a powerful motor handle any recipe. Compatible with over 10 optional hub-powered attachments from pasta rollers to food grinders.',
+   274→   274→        shortDesc: '5-qt bowl, 10 speeds, 10+ attachments',
+   275→   275→        sku: 'KA-ARTISAN-001',
+   276→   276→        price: 379.99,
+   277→   277→        comparePrice: 449.99,
+   278→   278→        costPrice: 190.00,
+   279→   279→        images: JSON.stringify(['/products/ka-mixer-1.jpg', '/products/ka-mixer-2.jpg', '/products/ka-mixer-3.jpg']),
+   280→   280→        isFeatured: true,
+   281→   281→        isActive: true,
+   282→   282→        weight: 11.3,
+   283→   283→        categoryId: categories[2].id,
+   284→   284→        brandId: brands[5].id,
+   285→   285→        avgRating: 4.8,
+   286→   286→        reviewCount: 892,
+   287→   287→        totalSold: 5600,
+   288→   288→      },
+   289→   289→    }),
+   290→   290→    prisma.product.create({
+   291→   291→      data: {
+   292→   292→        name: 'Adidas Ultraboost 24',
+   293→   293→        slug: 'adidas-ultraboost-24',
+   294→   294→        description: 'Run with responsive energy return. The Ultraboost 24 features a BOOST midsole for incredible energy return, a Primeknit+ upper for adaptive support, and a Continental rubber outsole for extraordinary grip in wet and dry conditions.',
+   295→   295→        shortDesc: 'BOOST midsole, Primeknit+, Continental grip',
+   296→   296→        sku: 'ADI-UB24-001',
+   297→   297→        price: 190.00,
+   298→   298→        comparePrice: 220.00,
+   299→   299→        costPrice: 75.00,
+   300→   300→        images: JSON.stringify(['/products/ub24-1.jpg', '/products/ub24-2.jpg', '/products/ub24-3.jpg']),
+   301→   301→        isFeatured: false,
+   302→   302→        isActive: true,
+   303→   303→        weight: 0.31,
+   304→   304→        categoryId: categories[3].id,
+   305→   305→        brandId: brands[4].id,
+   306→   306→        avgRating: 4.6,
+   307→   307→        reviewCount: 445,
+   308→   308→        totalSold: 3100,
+   309→   309→      },
+   310→   310→    }),
+   311→   311→    prisma.product.create({
+   312→   312→      data: {
+   313→   313→        name: 'Samsung Galaxy Tab S9 Ultra',
+   314→   314→        slug: 'samsung-galaxy-tab-s9-ultra',
+   315→   315→        description: 'The biggest Galaxy Tab with a massive 14.6-inch Dynamic AMOLED 2X display. Powered by Snapdragon 8 Gen 2, with IP68 water resistance and an included S Pen. Perfect for productivity, creativity, and entertainment.',
+   316→   316→        shortDesc: '14.6" AMOLED, S Pen, IP68 rated',
+   317→   317→        sku: 'SAM-TABS9U-001',
+   318→   318→        price: 1199.99,
+   319→   319→        comparePrice: 1319.99,
+   320→   320→        costPrice: 800.00,
+   321→   321→        images: JSON.stringify(['/products/tabs9-1.jpg', '/products/tabs9-2.jpg', '/products/tabs9-3.jpg']),
+   322→   322→        isFeatured: false,
+   323→   323→        isActive: true,
+   324→   324→        weight: 0.732,
+   325→   325→        categoryId: tabletCat.id,
+   326→   326→        brandId: brands[1].id,
+   327→   327→        avgRating: 4.4,
+   328→   328→        reviewCount: 87,
+   329→   329→        totalSold: 340,
+   330→   330→      },
+   331→   331→    }),
+   332→   332→    prisma.product.create({
+   333→   333→      data: {
+   334→   334→        name: 'Sony PlayStation 5 Slim',
+   335→   335→        slug: 'sony-playstation-5-slim',
+   336→   336→        description: 'Experience lightning-fast loading with an ultra-high speed SSD, deeper immersion with support for haptic feedback, adaptive triggers, and 3D Audio. The slimmer, lighter design takes up less space without compromising power.',
+   337→   337→        shortDesc: 'Ultra-fast SSD, DualSense, 3D Audio',
+   338→   338→        sku: 'SNY-PS5SLIM-001',
+   339→   339→        price: 449.99,
+   340→   340→        comparePrice: 499.99,
+   341→   341→        costPrice: 300.00,
+   342→   342→        images: JSON.stringify(['/products/ps5s-1.jpg', '/products/ps5s-2.jpg', '/products/ps5s-3.jpg']),
+   343→   343→        isFeatured: true,
+   344→   344→        isActive: true,
+   345→   345→        weight: 3.2,
+   346→   346→        categoryId: categories[0].id,
+   347→   347→        brandId: brands[2].id,
+   348→   348→        avgRating: 4.8,
+   349→   349→        reviewCount: 678,
+   350→   350→        totalSold: 8900,
+   351→   351→      },
+   352→   352→    }),
+   353→   353→  ])
+   354→   354→
+   355→   355→  // ============================================================================
+   356→   356→  // PRODUCT VARIANTS
+   357→   357→  // ============================================================================
+   358→   358→  const iphoneVariants = await Promise.all([
+   359→   359→    prisma.productVariant.create({ data: { productId: products[0].id, name: '256GB Natural Titanium', sku: 'APL-IP16PM-256-NT', price: 1199.00, attributes: JSON.stringify({ storage: '256GB', color: 'Natural Titanium' }) }}),
+   360→   360→    prisma.productVariant.create({ data: { productId: products[0].id, name: '512GB Desert Titanium', sku: 'APL-IP16PM-512-DT', price: 1399.00, attributes: JSON.stringify({ storage: '512GB', color: 'Desert Titanium' }) }}),
+   361→   361→    prisma.productVariant.create({ data: { productId: products[0].id, name: '1TB Black Titanium', sku: 'APL-IP16PM-1T-BT', price: 1599.00, attributes: JSON.stringify({ storage: '1TB', color: 'Black Titanium' }) }}),
+   362→   362→  ])
+   363→   363→
+   364→   364→  // ============================================================================
+   365→   365→  // INVENTORY
+   366→   366→  // ============================================================================
+   367→   367→  for (const product of products) {
+   368→   368→    await prisma.inventory.create({
+   369→   369→      data: {
+   370→   370→        productId: product.id,
+   371→   371→        quantity: Math.floor(Math.random() * 200) + 20,
+   372→   372→        reserved: Math.floor(Math.random() * 10),
+   373→   373→        lowStockThreshold: 10,
+   374→   374→        sku: product.sku,
+   375→   375→      },
+   376→   376→    })
+   377→   377→  }
+   378→   378→
+   379→   379→  // Variant inventory
+   380→   380→  for (const variant of iphoneVariants) {
+   381→   381→    await prisma.inventory.create({
+   382→   382→      data: {
+   383→   383→        productId: products[0].id,
+   384→   384→        variantId: variant.id,
+   385→   385→        quantity: Math.floor(Math.random() * 100) + 10,
+   386→   386→        reserved: Math.floor(Math.random() * 5),
+   387→   387→        lowStockThreshold: 5,
+   388→   388→        sku: variant.sku,
+   389→   389→      },
+   390→   390→    })
+   391→   391→  }
+   392→   392→
+   393→   393→  // ============================================================================
+   394→   394→  // PRODUCT TAGS
+   395→   395→  // ============================================================================
+   396→   396→  const tags = [
+   397→   397→    { productId: products[0].id, tag: 'flagship' },
+   398→   398→    { productId: products[0].id, tag: '5g' },
+   399→   399→    { productId: products[1].id, tag: 'ai' },
+   400→   400→    { productId: products[1].id, tag: '5g' },
+   401→   401→    { productId: products[2].id, tag: 'professional' },
+   402→   402→    { productId: products[2].id, tag: 'creator' },
+   403→   403→    { productId: products[3].id, tag: 'noise-cancelling' },
+   404→   404→    { productId: products[3].id, tag: 'wireless' },
+   405→   405→    { productId: products[4].id, tag: 'creative' },
+   406→   406→    { productId: products[11].id, tag: 'gaming' },
+   407→   407→    { productId: products[11].id, tag: 'best-seller' },
+   408→   408→    { productId: products[8].id, tag: 'best-seller' },
+   409→   409→  ]
+   410→   410→
+   411→   411→  for (const t of tags) {
+   412→   412→    await prisma.productTag.create({ data: t })
+   413→   413→  }
+   414→   414→
+   415→   415→  // ============================================================================
+   416→   416→  // COUPONS
+   417→   417→  // ============================================================================
+   418→   418→  await prisma.coupon.create({ data: { code: 'WELCOME10', type: 'PERCENTAGE', value: 10, minPurchase: 50, isActive: true, usageLimit: 1000, usedCount: 45 }})
+   419→   419→  await prisma.coupon.create({ data: { code: 'SAVE25', type: 'FIXED', value: 25, minPurchase: 100, isActive: true, usageLimit: 500, usedCount: 123 }})
+   420→   420→  await prisma.coupon.create({ data: { code: 'FLASH20', type: 'PERCENTAGE', value: 20, maxDiscount: 100, minPurchase: 75, isActive: true, usageLimit: 200, usedCount: 78, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) }})
+   421→   421→
+   422→   422→  // ============================================================================
+   423→   423→  // BANNERS
+   424→   424→  // ============================================================================
+   425→   425→  await prisma.banner.create({ data: { title: 'Summer Tech Sale', subtitle: 'Up to 40% off on premium electronics', image: '/banners/summer-tech.jpg', link: '/products?category=electronics', buttonText: 'Shop Now', position: 'HERO', isActive: true, sortOrder: 1 }})
+   426→   426→  await prisma.banner.create({ data: { title: 'New Arrivals', subtitle: 'Discover the latest in fashion and lifestyle', image: '/banners/new-arrivals.jpg', link: '/products?tag=new', buttonText: 'Explore', position: 'HERO', isActive: true, sortOrder: 2 }})
+   427→   427→  await prisma.banner.create({ data: { title: 'Free Shipping', subtitle: 'On orders over $50', image: '/banners/free-shipping.jpg', position: 'SIDEBAR', isActive: true, sortOrder: 1 }})
+   428→   428→
+   429→   429→  // ============================================================================
+   430→   430→  // ADDRESSES
+   431→   431→  // ============================================================================
+   432→   432→  await prisma.address.create({ data: { userId: customer1.id, label: 'Home', firstName: 'John', lastName: 'Doe', street1: '123 Main St', street2: 'Apt 4B', city: 'New York', state: 'NY', postalCode: '10001', country: 'US', phone: '+1234567890', isDefault: true }})
+   433→   433→
+   434→   434→  // ============================================================================
+   435→   435→  // ORDERS (sample data)
+   436→   436→  // ============================================================================
+   437→   437→  const order1 = await prisma.order.create({
+   438→   438→    data: {
+   439→   439→      orderNumber: 'SF-2024-001',
+   440→   440→      userId: customer1.id,
+   441→   441→      status: 'DELIVERED',
+   442→   442→      subtotal: 1549.99,
+   443→   443→      taxAmount: 124.00,
+   444→   444→      shippingAmount: 0,
+   445→   445→      discountAmount: 0,
+   446→   446→      totalAmount: 1673.99,
+   447→   447→      shippingAddress: JSON.stringify({ firstName: 'John', lastName: 'Doe', street1: '123 Main St', city: 'New York', state: 'NY', postalCode: '10001', country: 'US' }),
+   448→   448→      billingAddress: JSON.stringify({ firstName: 'John', lastName: 'Doe', street1: '123 Main St', city: 'New York', state: 'NY', postalCode: '10001', country: 'US' }),
+   449→   449→      shippingMethod: 'Standard',
+   450→   450→      items: {
+   451→   451→        create: [
+   452→   452→          { productId: products[3].id, productName: 'Sony WH-1000XM5', sku: 'SNY-WH1000XM5-001', price: 349.99, quantity: 1, total: 349.99, image: '/products/xm5-1.jpg' },
+   453→   453→          { productId: products[0].id, productName: 'iPhone 16 Pro Max', sku: 'APL-IP16PM-001', price: 1199.00, quantity: 1, total: 1199.00, image: '/products/iphone16-1.jpg' },
+   454→   454→        ],
+   455→   455→      },
+   456→   456→    },
+   457→   457→  })
+   458→   458→
+   459→   459→  await prisma.payment.create({
+   460→   460→    data: {
+   461→   461→      orderId: order1.id,
+   462→   462→      method: 'STRIPE',
+   463→   463→      status: 'COMPLETED',
+   464→   464→      transactionId: 'pi_test_123456',
+   465→   465→      amount: 1673.99,
+   466→   466→      stripePaymentIntentId: 'pi_test_123456',
+   467→   467→    },
+   468→   468→  })
+   469→   469→
+   470→   470→  await prisma.orderTimeline.createMany({
+   471→   471→    data: [
+   472→   472→      { orderId: order1.id, status: 'PENDING', message: 'Order placed', createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
+   473→   473→      { orderId: order1.id, status: 'PAID', message: 'Payment confirmed', createdAt: new Date(Date.now() - 6.9 * 24 * 60 * 60 * 1000) },
+   474→   474→      { orderId: order1.id, status: 'PROCESSING', message: 'Order is being prepared', createdAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000) },
+   475→   475→      { orderId: order1.id, status: 'SHIPPED', message: 'Package shipped via FedEx', createdAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000) },
+   476→   476→      { orderId: order1.id, status: 'DELIVERED', message: 'Package delivered', createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) },
+   477→   477→    ],
+   478→   478→  })
+   479→   479→
+   480→   480→  // Second order (processing)
+   481→   481→  const order2 = await prisma.order.create({
+   482→   482→    data: {
+   483→   483→      orderNumber: 'SF-2024-002',
+   484→   484→      userId: customer1.id,
+   485→   485→      status: 'PROCESSING',
+   486→   486→      subtotal: 379.99,
+   487→   487→      taxAmount: 30.40,
+   488→   488→      shippingAmount: 9.99,
+   489→   489→      discountAmount: 37.99,
+   490→   490→      totalAmount: 382.39,
+   491→   491→      shippingAddress: JSON.stringify({ firstName: 'John', lastName: 'Doe', street1: '123 Main St', city: 'New York', state: 'NY', postalCode: '10001', country: 'US' }),
+   492→   492→      billingAddress: JSON.stringify({ firstName: 'John', lastName: 'Doe', street1: '123 Main St', city: 'New York', state: 'NY', postalCode: '10001', country: 'US' }),
+   493→   493→      shippingMethod: 'Express',
+   494→   494→      items: {
+   495→   495→        create: [
+   496→   496→          { productId: products[8].id, productName: 'KitchenAid Artisan Stand Mixer', sku: 'KA-ARTISAN-001', price: 379.99, quantity: 1, total: 379.99, image: '/products/ka-mixer-1.jpg' },
+   497→   497→        ],
+   498→   498→      },
+   499→   499→    },
+   500→   500→  })
+   501→   501→
+   502→   502→  await prisma.payment.create({
+   503→   503→    data: {
+   504→   504→      orderId: order2.id,
+   505→   505→      method: 'STRIPE',
+   506→   506→      status: 'COMPLETED',
+   507→   507→      transactionId: 'pi_test_789012',
+   508→   508→      amount: 382.39,
+   509→   509→      stripePaymentIntentId: 'pi_test_789012',
+   510→   510→    },
+   511→   511→  })
+   512→   512→
+   513→   513→  // ============================================================================
+   514→   514→  // REVIEWS
+   515→   515→  // ============================================================================
+   516→   516→  await prisma.review.create({ data: { userId: customer1.id, productId: products[0].id, rating: 5, title: 'Best iPhone yet!', content: 'The camera system is incredible and the battery lasts all day. Titanium build feels premium. Coming from an iPhone 14 Pro, the upgrade is significant especially in low-light photography.', isVerified: true, isApproved: true, helpfulYes: 23, helpfulNo: 2 }})
+   517→   517→  await prisma.review.create({ data: { userId: customer2.id, productId: products[0].id, rating: 4, title: 'Great phone, expensive', content: 'Amazing performance and camera quality. The A18 Pro chip handles everything I throw at it. Only downside is the price point - it is a significant investment. Still, worth it if you use your phone as your primary device.', isVerified: true, isApproved: true, helpfulYes: 15, helpfulNo: 1 }})
+   518→   518→  await prisma.review.create({ data: { userId: customer1.id, productId: products[3].id, rating: 5, title: 'ANC king', content: 'The noise cancellation is phenomenal. I use these daily on my commute and in the office. The 30-hour battery life means I only charge once a week. Sound quality is rich and detailed.', isVerified: true, isApproved: true, helpfulYes: 45, helpfulNo: 3 }})
+   519→   519→  await prisma.review.create({ data: { userId: customer2.id, productId: products[8].id, rating: 5, title: 'Kitchen essential', content: 'This mixer is a game changer for baking. Powerful motor, smooth operation, and the attachments are worth every penny. Made bread dough, whipped cream, and pasta with ease. Highly recommend!', isVerified: true, isApproved: true, helpfulYes: 67, helpfulNo: 1 }})
+   520→   520→  await prisma.review.create({ data: { userId: customer2.id, productId: products[11].id, rating: 5, title: 'Next-gen gaming', content: 'The loading speeds are insane - games start in seconds. DualSense controller is a revelation with haptic feedback. The slim design fits perfectly in my entertainment center. Best console purchase ever.', isVerified: true, isApproved: true, helpfulYes: 34, helpfulNo: 2 }})
+   521→   521→
+   522→   522→  // ============================================================================
+   523→   523→  // NOTIFICATIONS
+   524→   524→  // ============================================================================
+   525→   525→  await prisma.notification.create({ data: { userId: customer1.id, type: 'ORDER', title: 'Order Delivered', message: 'Your order SF-2024-001 has been delivered!', link: '/account/orders/SF-2024-001' }})
+   526→   526→  await prisma.notification.create({ data: { userId: customer1.id, type: 'PROMO', title: 'Summer Sale', message: 'Get 20% off with code FLASH20 this week!', link: '/products?sale=true' }})
+   527→   527→  await prisma.notification.create({ data: { userId: customer1.id, type: 'SYSTEM', title: 'Welcome to ShopForge', message: 'Thanks for joining! Use WELCOME10 for 10% off your first order.' }})
+   528→   528→
+   529→   529→  // ============================================================================
+   530→   530→  // AUDIT LOGS
+   531→   531→  // ============================================================================
+   532→   532→  await prisma.auditLog.create({ data: { userId: adminUser.id, action: 'CREATE', entity: 'Product', entityId: products[0].id, details: JSON.stringify({ name: products[0].name }) }})
+   533→   533→  await prisma.auditLog.create({ data: { userId: adminUser.id, action: 'CREATE', entity: 'Coupon', details: JSON.stringify({ code: 'WELCOME10' }) }})
+   534→   534→
+   535→   535→  // ============================================================================
+   536→   536→  // STORE SETTINGS
+   537→   537→  // ============================================================================
+   538→   538→  await prisma.storeSettings.create({ data: { key: 'store_name', value: JSON.stringify('ShopForge'), description: 'Store display name' }})
+   539→   539→  await prisma.storeSettings.create({ data: { key: 'tax_rate', value: JSON.stringify(0.08), description: 'Default tax rate' }})
+   540→   540→  await prisma.storeSettings.create({ data: { key: 'free_shipping_min', value: JSON.stringify(50), description: 'Minimum order for free shipping' }})
+   541→   541→  await prisma.storeSettings.create({ data: { key: 'currency', value: JSON.stringify('USD'), description: 'Default currency' }})
+   542→   542→
+   543→   543→  // ============================================================================
+   544→   544→  // FLASH SALE
+   545→   545→  // ============================================================================
+   546→   546→  const flashSale = await prisma.flashSale.create({
+   547→   547→    data: {
+   548→   548→      name: 'Weekend Flash Sale',
+   549→   549→      description: 'Limited time deals on top electronics',
+   550→   550→      startsAt: new Date(Date.now() - 1 * 60 * 60 * 1000),
+   551→   551→      endsAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
+   552→   552→      isActive: true,
+   553→   553→    },
+   554→   554→  })
+   555→   555→
+   556→   556→  await prisma.flashSaleProduct.create({ data: { flashSaleId: flashSale.id, productId: products[3].id, salePrice: 249.99, quantityLimit: 2 }})
+   557→   557→  await prisma.flashSaleProduct.create({ data: { flashSaleId: flashSale.id, productId: products[7].id, salePrice: 329.00, quantityLimit: 1 }})
+   558→   558→
+   559→   559→  console.log('✅ Seed data created successfully!')
+   560→   560→  console.log(`   - ${categories.length} categories + ${subCategories.length} subcategories`)
+   561→   561→  console.log(`   - ${brands.length} brands`)
+   562→   562→  console.log(`   - ${products.length} products`)
+   563→   563→  console.log(`   - 3 users (1 admin, 2 customers)`)
+   564→   564→  console.log(`   - 3 coupons`)
+   565→   565→  console.log(`   - 2 sample orders`)
+   566→   566→  console.log(`   - 5 reviews`)
+   567→   567→}
+   568→   568→
+   569→   569→main()
+   570→   570→  .catch((e) => {
+   571→   571→    console.error(e)
+   572→   572→    process.exit(1)
+   573→   573→  })
+   574→   574→  .finally(async () => {
+   575→   575→    await prisma.$disconnect()
+   576→   576→  })
+   577→   577→
