@@ -1,25 +1,10 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { handleApiError } from '@/lib/errors'
 
 // GET /api/categories
 export async function GET() {
   try {
-    const categories = await db.category.findMany({
-      where: { isActive: true },
-      include: {
-        _count: { select: { products: { where: { isActive: true } } } },
-        children: {
-          where: { isActive: true },
-          include: {
-            _count: { select: { products: { where: { isActive: true } } } },
-          },
-        },
-      },
-      where: { isActive: true, parentId: null },
-      orderBy: { sortOrder: 'asc' },
-    })
-
-    // Fix: we need to re-query since we have conflicting where clauses
     const result = await db.category.findMany({
       where: { isActive: true, parentId: null },
       include: {
@@ -36,7 +21,6 @@ export async function GET() {
 
     return NextResponse.json(result)
   } catch (error) {
-    console.error('Categories API error:', error)
-    return NextResponse.json({ error: 'Failed to fetch categories' }, { status: 500 })
+    return handleApiError(error)
   }
 }

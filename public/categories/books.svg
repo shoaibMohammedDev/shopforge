@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+  <rect width="400" height="300" fill="#fafafa" rx="12"/>
+  <rect x="140" y="60" width="120" height="120" rx="16" fill="#8b5cf6" opacity="0.1"/>
+  <text x="200" y="135" font-family="system-ui, -apple-system, sans-serif" font-size="40" fill="#8b5cf6" text-anchor="middle" opacity="0.6">📦</text>
+  <text x="200" y="220" font-family="system-ui, -apple-system, sans-serif" font-size="16" fill="#555" text-anchor="middle">Books</text>
+</svg>

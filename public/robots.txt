@@ -1,8 +1,13 @@
+# ShopForge - robots.txt
+# https://www.robotstxt.org/robotstxt.html
+
 User-agent: Googlebot
 Allow: /
+Crawl-delay: 1
 
 User-agent: Bingbot
 Allow: /
+Crawl-delay: 1
 
 User-agent: Twitterbot
 Allow: /
@@ -10,5 +15,14 @@ Allow: /
 User-agent: facebookexternalhit
 Allow: /
 
+# Block admin and API routes from indexing
 User-agent: *
 Allow: /
+Disallow: /api/
+Disallow: /admin
+Disallow: /checkout
+Disallow: /account
+Disallow: /cart
+
+# Sitemap location
+Sitemap: https://shopforge.dev/sitemap.xml

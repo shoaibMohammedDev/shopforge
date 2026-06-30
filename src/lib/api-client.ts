@@ -9,9 +9,21 @@ const API_BASE = '/api'
 
 class ApiClient {
   private baseUrl: string
+  private csrfToken: string | null = null
 
   constructor(baseUrl: string = API_BASE) {
     this.baseUrl = baseUrl
+  }
+
+  /**
+   * Get CSRF token from cookie (double-submit pattern)
+   */
+  private getCsrfTokenFromCookie(): string | null {
+    if (typeof document === 'undefined') return null
+    const match = document.cookie
+      .split(';')
+      .find(c => c.trim().startsWith('shopforge-csrf='))
+    return match ? match.split('=')[1]?.trim() || null : null
   }
 
   private async request<T>(
@@ -20,24 +32,37 @@ class ApiClient {
   ): Promise<ApiResponse<T>> {
     try {
       const url = `${this.baseUrl}${endpoint}`
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...(options?.headers as Record<string, string>),
+      }
+
+      // Attach CSRF token for state-changing requests
+      const method = options?.method?.toUpperCase() || 'GET'
+      if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+        const token = this.getCsrfTokenFromCookie()
+        if (token) {
+          headers['x-csrf-token'] = token
+        }
+      }
+
       const config: RequestInit = {
-        headers: {
-          'Content-Type': 'application/json',
-          ...options?.headers,
-        },
         ...options,
+        headers,
       }
 
       const response = await fetch(url, config)
-      const data = await response.json()
+      const body = await response.json()
 
       if (!response.ok) {
         return {
           success: false,
-          error: data.error || `Request failed with status ${response.status}`,
+          error: body.error || `Request failed with status ${response.status}`,
         }
       }
 
+      // Unwrap the API's { success, data } envelope so callers get data directly
+      const data = body.data !== undefined ? body.data : body
       return { success: true, data }
     } catch (error) {
       return {

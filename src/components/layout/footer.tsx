@@ -22,27 +22,27 @@ export function Footer() {
   }
 
   const shopLinks = [
-    { label: 'All Products', route: 'products' as const },
+    { label: 'All Products', route: 'products' as const, params: {} as Record<string, string> },
     { label: 'New Arrivals', route: 'products' as const, params: { sort: 'newest' } },
     { label: 'Best Sellers', route: 'products' as const, params: { sort: 'popular' } },
     { label: 'Featured', route: 'products' as const, params: { isFeatured: 'true' } },
-    { label: 'Cart', route: 'cart' as const },
+    { label: 'Cart', route: 'cart' as const, params: {} as Record<string, string> },
   ]
 
   const customerServiceLinks = [
-    { label: 'My Account', route: 'account' as const },
-    { label: 'Order Tracking', route: 'account-orders' as const },
-    { label: 'Wishlist', route: 'account-wishlist' as const },
-    { label: 'Shipping Info', route: 'products' as const },
-    { label: 'Returns & Exchanges', route: 'products' as const },
+    { label: 'My Account', route: 'account' as const, params: {} as Record<string, string> },
+    { label: 'Order Tracking', route: 'account-orders' as const, params: {} as Record<string, string> },
+    { label: 'Wishlist', route: 'account-wishlist' as const, params: {} as Record<string, string> },
+    { label: 'Shipping Info', route: 'products' as const, params: {} as Record<string, string> },
+    { label: 'Returns & Exchanges', route: 'products' as const, params: {} as Record<string, string> },
   ]
 
   const aboutLinks = [
-    { label: 'About Us', route: 'home' as const },
-    { label: 'Contact Us', route: 'home' as const },
-    { label: 'Careers', route: 'home' as const },
-    { label: 'Privacy Policy', route: 'home' as const },
-    { label: 'Terms of Service', route: 'home' as const },
+    { label: 'About Us', route: 'home' as const, params: {} as Record<string, string> },
+    { label: 'Contact Us', route: 'home' as const, params: {} as Record<string, string> },
+    { label: 'Careers', route: 'home' as const, params: {} as Record<string, string> },
+    { label: 'Privacy Policy', route: 'home' as const, params: {} as Record<string, string> },
+    { label: 'Terms of Service', route: 'home' as const, params: {} as Record<string, string> },
   ]
 
   return (

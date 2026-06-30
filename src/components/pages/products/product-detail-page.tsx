@@ -637,8 +637,8 @@ export default function ProductDetailPage() {
 
   // Flash sale
   const flashSale = useMemo(() => {
-    if (!product?.flashSales || product.flashSales.length === 0) return null
-    return product.flashSales[0]
+    if (!product?.flashSaleProduct || product.flashSaleProduct.length === 0) return null
+    return product.flashSaleProduct[0]
   }, [product])
 
   const flashSalePrice = flashSale?.salePrice ?? null

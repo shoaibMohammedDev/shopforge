@@ -25,6 +25,10 @@ export const useAuthStore = create<AuthStore>()(
     }),
     {
       name: 'shopforge-auth',
+      partialize: (state) => ({
+        user: state.user,
+        isAuthenticated: state.isAuthenticated,
+      }),
     }
   )
 )

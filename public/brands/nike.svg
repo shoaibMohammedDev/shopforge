@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200">
+  <rect width="200" height="200" fill="#f8f8f8" rx="12"/>
+  <circle cx="100" cy="80" r="35" fill="#111" opacity="0.15"/>
+  <text x="100" y="90" font-family="system-ui, -apple-system, sans-serif" font-size="28" fill="#111" text-anchor="middle" font-weight="bold">N</text>
+  <text x="100" y="140" font-family="system-ui, -apple-system, sans-serif" font-size="14" fill="#666" text-anchor="middle">Nike</text>
+</svg>

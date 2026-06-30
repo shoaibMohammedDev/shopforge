@@ -53,7 +53,7 @@ export interface ProductListItem {
   brand: { id: string; name: string; slug: string } | null
   inventory: { quantity: number; reserved: number }[]
   tags: { tag: string }[]
-  flashSales?: { salePrice: number; flashSale: { isActive: boolean; startsAt: string; endsAt: string } }[]
+  flashSaleProduct?: { salePrice: number; flashSale: { isActive: boolean; startsAt: string; endsAt: string } }[]
 }
 
 export interface ProductDetail {
@@ -80,7 +80,7 @@ export interface ProductDetail {
   inventory: { id: string; quantity: number; reserved: number; lowStockThreshold: number; sku: string }[]
   tags: { tag: string }[]
   reviews: ReviewItem[]
-  flashSales?: { salePrice: number; flashSale: { isActive: boolean; startsAt: string; endsAt: string } }[]
+  flashSaleProduct?: { salePrice: number; flashSale: { isActive: boolean; startsAt: string; endsAt: string } }[]
 }
 
 export interface ProductVariant {
@@ -200,6 +200,7 @@ export interface CategoryDisplay {
   parentId: string | null
   sortOrder: number
   _count?: { products: number }
+  children?: CategoryDisplay[]
 }
 
 // ---- Brand ----

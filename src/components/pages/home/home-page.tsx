@@ -82,12 +82,12 @@ function StarRating({ rating, count }: { rating: number; count?: number }) {
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 24 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' as const } },
 }
 
 const fadeIn = {
   hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { duration: 0.4, ease: 'easeOut' } },
+  visible: { opacity: 1, transition: { duration: 0.4, ease: 'easeOut' as const } },
 }
 
 const staggerContainer = {
@@ -100,7 +100,7 @@ const staggerContainer = {
 
 const staggerItem = {
   hidden: { opacity: 0, y: 16 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' as const } },
 }
 
 // ============================================================================
@@ -206,7 +206,7 @@ function ProductCard({ product }: { product: ProductListItem }) {
     : 0
 
   const displayPrice =
-    product.flashSaleProduct?.salePrice ?? product.price
+    product.flashSaleProduct?.[0]?.salePrice ?? product.price
 
   const handleAddToCart = useCallback(
     (e: React.MouseEvent) => {
@@ -267,7 +267,7 @@ function ProductCard({ product }: { product: ProductListItem }) {
           )}
 
           {/* Flash sale badge */}
-          {product.flashSaleProduct && product.flashSaleProduct.flashSale?.isActive && (
+          {product.flashSaleProduct?.[0] && product.flashSaleProduct[0].flashSale?.isActive && (
             <Badge className="absolute top-2 left-2 bg-orange-500 text-white hover:bg-orange-600 border-0 text-xs gap-1">
               <Zap className="size-3" /> Flash
             </Badge>
@@ -311,7 +311,7 @@ function ProductCard({ product }: { product: ProductListItem }) {
           <div className="flex items-baseline gap-2">
             <span
               className={`font-semibold ${
-                product.flashSaleProduct && product.flashSaleProduct.flashSale?.isActive ? 'text-red-600 dark:text-red-400' : ''
+                product.flashSaleProduct?.[0] && product.flashSaleProduct[0].flashSale?.isActive ? 'text-red-600 dark:text-red-400' : ''
               }`}
             >
               {formatPrice(displayPrice)}
@@ -480,7 +480,7 @@ export default function HomePage() {
   // Filter flash sale items from all products
   const flashSaleProducts = useMemo(() => {
     if (!flashSaleData?.items) return []
-    return flashSaleData.items.filter((p) => p.flashSaleProduct && p.flashSaleProduct.flashSale?.isActive)
+    return flashSaleData.items.filter((p) => p.flashSaleProduct?.[0] && p.flashSaleProduct[0].flashSale?.isActive)
   }, [flashSaleData])
 
   // Take up to 8 categories for the grid

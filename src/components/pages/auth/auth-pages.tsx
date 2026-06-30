@@ -93,7 +93,7 @@ export function LoginPage() {
   const onSubmit = async (values: LoginFormValues) => {
     setIsLoading(true)
     try {
-      const result = await api.post<UserProfile>('/auth', {
+      const result = await api.post<{ user: UserProfile }>('/auth', {
         action: 'login',
         email: values.email,
         password: values.password,
@@ -300,7 +300,7 @@ export function RegisterPage() {
   const onSubmit = async (values: RegisterFormValues) => {
     setIsLoading(true)
     try {
-      const result = await api.post<UserProfile>('/auth', {
+      const result = await api.post<{ user: UserProfile }>('/auth', {
         action: 'register',
         email: values.email,
         password: values.password,
