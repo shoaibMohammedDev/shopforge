@@ -151,4 +151,21 @@ start_mini_services
 echo "Next.js dev server is running in background (PID: $DEV_PID)."
 echo "Use 'kill $DEV_PID' to stop it."
 disown "$DEV_PID" 2>/dev/null || true
-unset DEV_PID
+
+# Keep-alive: monitor and auto-restart Next.js if it dies
+echo "[KEEP-ALIVE] Starting monitor loop..."
+while true; do
+  if ! curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/ 2>/dev/null | grep -q "200\|301\|302"; then
+    echo "[$(date)] Next.js down, restarting..."
+    pkill -f "next dev" 2>/dev/null
+    sleep 2
+    bun run dev &
+    DEV_PID=$!
+    disown "$DEV_PID" 2>/dev/null || true
+    sleep 10
+    if curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/ 2>/dev/null | grep -q "200"; then
+      echo "[$(date)] Next.js restarted OK (PID: $DEV_PID)"
+    fi
+  fi
+  sleep 60
+done
