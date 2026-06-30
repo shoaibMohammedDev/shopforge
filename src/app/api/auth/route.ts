@@ -1,91 +1,126 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import crypto from 'crypto'
+import { authSchema } from '@/lib/validators'
+import { handleApiError, AuthenticationError, ConflictError, ValidationError } from '@/lib/errors'
+import { createHash } from 'crypto'
+import bcrypt from 'bcryptjs'
 
-// POST /api/auth - Login / Register
+// POST /api/auth - Login / Register / Verify / Change Password
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { action, email, password, name } = body
 
-    if (action === 'login') {
-      const hash = crypto.createHash('sha256').update(password).digest('hex')
-      const user = await db.user.findUnique({
-        where: { email },
-      })
+    // Validate input with Zod schema
+    const parsed = authSchema.safeParse(body)
+    if (!parsed.success) {
+      const fields: Record<string, string[]> = {}
+      for (const issue of parsed.error.issues) {
+        const key = String(issue.path.join('.'))
+        if (!fields[key]) fields[key] = []
+        fields[key].push(issue.message)
+      }
+      throw new ValidationError('Invalid input', fields)
+    }
 
-      if (!user || user.passwordHash !== hash) {
-        return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 })
+    const data = parsed.data
+
+    // ---- LOGIN ----
+    if (data.action === 'login') {
+      const user = await db.user.findUnique({ where: { email: data.email } })
+
+      if (!user || !user.passwordHash) {
+        throw new AuthenticationError('Invalid email or password')
       }
 
       if (!user.isActive) {
-        return NextResponse.json({ error: 'Account is disabled' }, { status: 403 })
+        throw new AuthenticationError('Account is disabled')
+      }
+
+      // Verify password with bcrypt (supports both old SHA-256 and new bcrypt hashes)
+      let passwordValid = false
+      if (user.passwordHash.startsWith('$2')) {
+        // bcrypt hash
+        passwordValid = await bcrypt.compare(data.password, user.passwordHash)
+      } else {
+        // Legacy SHA-256 hash — verify and upgrade
+        const sha256Hash = createHash('sha256').update(data.password).digest('hex')
+        passwordValid = sha256Hash === user.passwordHash
+
+        // Upgrade to bcrypt on successful login
+        if (passwordValid) {
+          const newHash = await bcrypt.hash(data.password, 12)
+          await db.user.update({ where: { id: user.id }, data: { passwordHash: newHash } })
+        }
+      }
+
+      if (!passwordValid) {
+        throw new AuthenticationError('Invalid email or password')
       }
 
       const { passwordHash: _, ...safeUser } = user
-      return NextResponse.json({ user: safeUser })
+      return NextResponse.json({ success: true, data: { user: safeUser } })
     }
 
-    if (action === 'register') {
-      const existing = await db.user.findUnique({ where: { email } })
+    // ---- REGISTER ----
+    if (data.action === 'register') {
+      const existing = await db.user.findUnique({ where: { email: data.email } })
       if (existing) {
-        return NextResponse.json({ error: 'Email already registered' }, { status: 409 })
+        throw new ConflictError('Email already registered')
       }
 
-      const hash = crypto.createHash('sha256').update(password).digest('hex')
+      const passwordHash = await bcrypt.hash(data.password, 12)
       const user = await db.user.create({
         data: {
-          email,
-          name,
-          passwordHash: hash,
+          email: data.email,
+          name: data.name,
+          passwordHash,
           role: 'CUSTOMER',
           emailVerified: false,
         },
       })
 
       const { passwordHash: _, ...safeUser } = user
-      return NextResponse.json({ user: safeUser }, { status: 201 })
+      return NextResponse.json({ success: true, data: { user: safeUser } }, { status: 201 })
     }
 
-    if (action === 'verify') {
-      // Check if session is valid
-      const { userId } = body
-      const user = await db.user.findUnique({ where: { id: userId } })
+    // ---- VERIFY SESSION ----
+    if (data.action === 'verify') {
+      const user = await db.user.findUnique({ where: { id: data.userId } })
       if (!user || !user.isActive) {
-        return NextResponse.json({ error: 'Invalid session' }, { status: 401 })
+        throw new AuthenticationError('Invalid session')
       }
       const { passwordHash: _, ...safeUser } = user
-      return NextResponse.json({ user: safeUser })
+      return NextResponse.json({ success: true, data: { user: safeUser } })
     }
 
-    if (action === 'change-password') {
-      const { userId, currentPassword, newPassword } = body
-      if (!userId || !currentPassword || !newPassword) {
-        return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    // ---- CHANGE PASSWORD ----
+    if (data.action === 'change-password') {
+      const user = await db.user.findUnique({ where: { id: data.userId } })
+      if (!user || !user.passwordHash) {
+        throw new AuthenticationError('User not found')
       }
 
-      const user = await db.user.findUnique({ where: { id: userId } })
-      if (!user) {
-        return NextResponse.json({ error: 'User not found' }, { status: 404 })
+      // Verify current password
+      let currentValid = false
+      if (user.passwordHash.startsWith('$2')) {
+        currentValid = await bcrypt.compare(data.currentPassword, user.passwordHash)
+      } else {
+        const sha256Hash = createHash('sha256').update(data.currentPassword).digest('hex')
+        currentValid = sha256Hash === user.passwordHash
       }
 
-      const currentHash = crypto.createHash('sha256').update(currentPassword).digest('hex')
-      if (user.passwordHash !== currentHash) {
-        return NextResponse.json({ error: 'Current password is incorrect' }, { status: 401 })
+      if (!currentValid) {
+        throw new ValidationError('Current password is incorrect')
       }
 
-      const newHash = crypto.createHash('sha256').update(newPassword).digest('hex')
-      await db.user.update({
-        where: { id: userId },
-        data: { passwordHash: newHash },
-      })
+      const newHash = await bcrypt.hash(data.newPassword, 12)
+      await db.user.update({ where: { id: user.id }, data: { passwordHash: newHash } })
 
-      return NextResponse.json({ success: true })
+      return NextResponse.json({ success: true, data: { message: 'Password updated' } })
     }
 
-    return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
+    return NextResponse.json({ success: false, error: 'Invalid action', code: 'BAD_REQUEST' }, { status: 400 })
   } catch (error) {
-    console.error('Auth API error:', error)
-    return NextResponse.json({ error: 'Authentication failed' }, { status: 500 })
+    return handleApiError(error)
   }
 }

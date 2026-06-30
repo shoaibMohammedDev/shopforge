@@ -17,7 +17,7 @@ import {
   AccountAddressesPage,
   AccountSettingsPage,
 } from '@/components/pages/account/account-pages'
-import { AdminPage } from '@/components/pages/admin/admin-pages'
+import { AdminPage } from '@/components/pages/admin/admin-page'
 
 // Admin routes use their own layout (no header/footer)
 const ADMIN_ROUTES = new Set([

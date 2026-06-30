@@ -1,0 +1,2002 @@
+     1→'use client'
+     2→
+     3→import { useState, useEffect, useCallback } from 'react'
+     4→import {
+     5→  LayoutDashboard,
+     6→  Package,
+     7→  ShoppingCart,
+     8→  Users,
+     9→  Tag,
+    10→  Star,
+    11→  Settings,
+    12→  Menu,
+    13→  LogOut,
+    14→  Store,
+    15→  DollarSign,
+    16→  TrendingUp,
+    17→  TrendingDown,
+    18→  Search,
+    19→  Plus,
+    20→  Pencil,
+    21→  Trash2,
+    22→  Eye,
+    23→  MoreHorizontal,
+    24→  ArrowUpDown,
+    25→  Loader2,
+    26→  CheckCircle2,
+    27→  XCircle,
+    28→  AlertTriangle,
+    29→  Copy,
+    30→} from 'lucide-react'
+    31→import {
+    32→  AreaChart,
+    33→  Area,
+    34→  PieChart,
+    35→  Pie,
+    36→  Cell,
+    37→  XAxis,
+    38→  YAxis,
+    39→  Tooltip,
+    40→  CartesianGrid,
+    41→} from 'recharts'
+    42→import { useRouterStore } from '@/stores/router-store'
+    43→import { useAuthStore } from '@/stores/auth-store'
+    44→import { useIsMobile } from '@/hooks/use-mobile'
+    45→import { toast } from '@/hooks/use-toast'
+    46→import type { RoutePath, AdminStats, CouponDisplay } from '@/types'
+    47→
+    48→import { Button } from '@/components/ui/button'
+    49→import {
+    50→  Card,
+    51→  CardContent,
+    52→  CardDescription,
+    53→  CardHeader,
+    54→  CardTitle,
+    55→} from '@/components/ui/card'
+    56→import { Input } from '@/components/ui/input'
+    57→import { Label } from '@/components/ui/label'
+    58→import { Badge } from '@/components/ui/badge'
+    59→import { Separator } from '@/components/ui/separator'
+    60→import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+    61→import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+    62→import { Skeleton } from '@/components/ui/skeleton'
+    63→import { ScrollArea } from '@/components/ui/scroll-area'
+    64→import {
+    65→  Table,
+    66→  TableBody,
+    67→  TableCell,
+    68→  TableHead,
+    69→  TableHeader,
+    70→  TableRow,
+    71→} from '@/components/ui/table'
+    72→import {
+    73→  Dialog,
+    74→  DialogContent,
+    75→  DialogDescription,
+    76→  DialogFooter,
+    77→  DialogHeader,
+    78→  DialogTitle,
+    79→} from '@/components/ui/dialog'
+    80→import {
+    81→  Sheet,
+    82→  SheetContent,
+    83→  SheetHeader,
+    84→  SheetTitle,
+    85→  SheetTrigger,
+    86→} from '@/components/ui/sheet'
+    87→import {
+    88→  DropdownMenu,
+    89→  DropdownMenuContent,
+    90→  DropdownMenuItem,
+    91→  DropdownMenuLabel,
+    92→  DropdownMenuSeparator,
+    93→  DropdownMenuTrigger,
+    94→} from '@/components/ui/dropdown-menu'
+    95→import {
+    96→  Select,
+    97→  SelectContent,
+    98→  SelectItem,
+    99→  SelectTrigger,
+   100→  SelectValue,
+   101→} from '@/components/ui/select'
+   102→import { Textarea } from '@/components/ui/textarea'
+   103→import { Switch } from '@/components/ui/switch'
+   104→import {
+   105→  ChartContainer,
+   106→  ChartTooltip,
+   107→  ChartTooltipContent,
+   108→  type ChartConfig,
+   109→} from '@/components/ui/chart'
+   110→
+   111→// ============================================================================
+   112→// Constants & Helpers
+   113→// ============================================================================
+   114→
+   115→const NAV_ITEMS: { icon: typeof LayoutDashboard; label: string; route: RoutePath }[] = [
+   116→  { icon: LayoutDashboard, label: 'Dashboard', route: 'admin' },
+   117→  { icon: Package, label: 'Products', route: 'admin-products' },
+   118→  { icon: ShoppingCart, label: 'Orders', route: 'admin-orders' },
+   119→  { icon: Users, label: 'Customers', route: 'admin-customers' },
+   120→  { icon: Tag, label: 'Coupons', route: 'admin-coupons' },
+   121→  { icon: Star, label: 'Reviews', route: 'admin-reviews' },
+   122→  { icon: Settings, label: 'Settings', route: 'admin-settings' },
+   123→]
+   124→
+   125→const PIE_COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4']
+   126→
+   127→function formatCurrency(value: number): string {
+   128→  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
+   129→}
+   130→
+   131→function formatDate(dateStr: string): string {
+   132→  return new Date(dateStr).toLocaleDateString('en-US', {
+   133→    month: 'short',
+   134→    day: 'numeric',
+   135→    year: 'numeric',
+   136→  })
+   137→}
+   138→
+   139→function getStatusBadgeVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
+   140→  const map: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+   141→    PENDING: 'secondary',
+   142→    PAID: 'default',
+   143→    PROCESSING: 'default',
+   144→    SHIPPED: 'default',
+   145→    DELIVERED: 'default',
+   146→    CANCELLED: 'destructive',
+   147→    REFUNDED: 'destructive',
+   148→    ACTIVE: 'default',
+   149→    INACTIVE: 'secondary',
+   150→    DRAFT: 'outline',
+   151→    Approved: 'default',
+   152→    Rejected: 'destructive',
+   153→    Pending: 'secondary',
+   154→  }
+   155→  return map[status] || 'outline'
+   156→}
+   157→
+   158→function StatusBadge({ status }: { status: string }) {
+   159→  const colorMap: Record<string, string> = {
+   160→    PENDING: 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100',
+   161→    PAID: 'bg-green-100 text-green-800 hover:bg-green-100',
+   162→    PROCESSING: 'bg-blue-100 text-blue-800 hover:bg-blue-100',
+   163→    SHIPPED: 'bg-indigo-100 text-indigo-800 hover:bg-indigo-100',
+   164→    DELIVERED: 'bg-emerald-100 text-emerald-800 hover:bg-emerald-100',
+   165→    CANCELLED: 'bg-red-100 text-red-800 hover:bg-red-100',
+   166→    REFUNDED: 'bg-red-100 text-red-800 hover:bg-red-100',
+   167→    ACTIVE: 'bg-green-100 text-green-800 hover:bg-green-100',
+   168→    INACTIVE: 'bg-gray-100 text-gray-800 hover:bg-gray-100',
+   169→    Approved: 'bg-green-100 text-green-800 hover:bg-green-100',
+   170→    Rejected: 'bg-red-100 text-red-800 hover:bg-red-100',
+   171→    Pending: 'bg-yellow-100 text-yellow-800 hover:bg-yellow-100',
+   172→  }
+   173→  const cls = colorMap[status] || ''
+   174→  if (cls) {
+   175→    return (
+   176→      <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${cls}`}>
+   177→        {status}
+   178→      </span>
+   179→    )
+   180→  }
+   181→  return <Badge variant={getStatusBadgeVariant(status)}>{status}</Badge>
+   182→}
+   183→
+   184→function StarRating({ rating, count }: { rating: number; count?: number }) {
+   185→  return (
+   186→    <div className="flex items-center gap-1">
+   187→      <div className="flex">
+   188→        {[1, 2, 3, 4, 5].map((star) => (
+   189→          <Star
+   190→            key={star}
+   191→            className={`h-3.5 w-3.5 ${
+   192→              star <= Math.round(rating)
+   193→                ? 'text-amber-400 fill-amber-400'
+   194→                : 'text-gray-300'
+   195→            }`}
+   196→          />
+   197→        ))}
+   198→      </div>
+   199→      {count !== undefined && (
+   200→        <span className="text-xs text-muted-foreground">({count})</span>
+   201→      )}
+   202→    </div>
+   203→  )
+   204→}
+   205→
+   206→// ============================================================================
+   207→// Admin Layout (shared sidebar + topbar)
+   208→// ============================================================================
+   209→
+   210→function AdminLayout({ children, title }: { children: React.ReactNode; title: string }) {
+   211→  const { currentRoute, navigate } = useRouterStore()
+   212→  const { user, logout } = useAuthStore()
+   213→  const isMobile = useIsMobile()
+   214→  const [mobileOpen, setMobileOpen] = useState(false)
+   215→
+   216→  if (user?.role !== 'ADMIN') {
+   217→    return (
+   218→      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+   219→        <Card className="w-full max-w-md mx-4">
+   220→          <CardHeader className="text-center">
+   221→            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-100">
+   222→              <AlertTriangle className="h-8 w-8 text-red-600" />
+   223→            </div>
+   224→            <CardTitle className="text-2xl">Access Denied</CardTitle>
+   225→            <CardDescription>
+   226→              You do not have permission to access the admin dashboard.
+   227→            </CardDescription>
+   228→          </CardHeader>
+   229→          <CardContent className="flex justify-center">
+   230→            <Button onClick={() => navigate('home')} variant="outline">
+   231→              <Store className="mr-2 h-4 w-4" />
+   232→              Back to Store
+   233→            </Button>
+   234→          </CardContent>
+   235→        </Card>
+   236→      </div>
+   237→    )
+   238→  }
+   239→
+   240→  const sidebarContent = (
+   241→    <div className="flex h-full flex-col">
+   242→      <div className="flex h-16 items-center gap-2 px-6 border-b border-white/10">
+   243→        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10">
+   244→          <Store className="h-4 w-4 text-white" />
+   245→        </div>
+   246→        <span className="text-lg font-bold text-white">ShopForge</span>
+   247→      </div>
+   248→      <ScrollArea className="flex-1 px-3 py-4">
+   249→        <nav className="flex flex-col gap-1">
+   250→          {NAV_ITEMS.map((item) => {
+   251→            const isActive = currentRoute === item.route
+   252→            return (
+   253→              <button
+   254→                key={item.route}
+   255→                onClick={() => {
+   256→                  navigate(item.route)
+   257→                  setMobileOpen(false)
+   258→                }}
+   259→                className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors w-full text-left ${
+   260→                  isActive
+   261→                    ? 'bg-white/15 text-white'
+   262→                    : 'text-gray-300 hover:bg-white/10 hover:text-white'
+   263→                }`}
+   264→              >
+   265→                <item.icon className="h-5 w-5 shrink-0" />
+   266→                {item.label}
+   267→              </button>
+   268→            )
+   269→          })}
+   270→        </nav>
+   271→      </ScrollArea>
+   272→      <div className="border-t border-white/10 p-3">
+   273→        <button
+   274→          onClick={() => navigate('home')}
+   275→          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-300 transition-colors hover:bg-white/10 hover:text-white"
+   276→        >
+   277→          <Store className="h-5 w-5 shrink-0" />
+   278→          Back to Store
+   279→        </button>
+   280→      </div>
+   281→    </div>
+   282→  )
+   283→
+   284→  return (
+   285→    <div className="flex min-h-screen bg-gray-50">
+   286→      {/* Desktop sidebar */}
+   287→      {!isMobile && (
+   288→        <aside className="fixed inset-y-0 left-0 z-30 flex w-64 flex-col bg-gray-900">
+   289→          {sidebarContent}
+   290→        </aside>
+   291→      )}
+   292→
+   293→      {/* Mobile sidebar via Sheet */}
+   294→      {isMobile && (
+   295→        <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+   296→          <SheetTrigger asChild>
+   297→            <Button
+   298→              variant="ghost"
+   299→              size="icon"
+   300→              className="fixed left-4 top-3 z-40 bg-gray-900 text-white hover:bg-gray-800 md:hidden"
+   301→            >
+   302→              <Menu className="h-5 w-5" />
+   303→            </Button>
+   304→          </SheetTrigger>
+   305→          <SheetContent side="left" className="w-64 bg-gray-900 p-0 border-0">
+   306→            <SheetHeader className="sr-only">
+   307→              <SheetTitle>Navigation Menu</SheetTitle>
+   308→            </SheetHeader>
+   309→            {sidebarContent}
+   310→          </SheetContent>
+   311→        </Sheet>
+   312→      )}
+   313→
+   314→      {/* Main content */}
+   315→      <div className={`flex flex-1 flex-col ${isMobile ? '' : 'ml-64'}`}>
+   316→        {/* Top bar */}
+   317→        <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b bg-white px-4 md:px-6 shadow-sm">
+   318→          <div className="flex items-center gap-3">
+   319→            {isMobile && <div className="w-10" />}
+   320→            <h1 className="text-xl font-semibold text-gray-900">{title}</h1>
+   321→          </div>
+   322→          <div className="flex items-center gap-3">
+   323→            <div className="hidden sm:block text-right">
+   324→              <p className="text-sm font-medium text-gray-900">{user?.name || 'Admin'}</p>
+   325→              <p className="text-xs text-gray-500">Administrator</p>
+   326→            </div>
+   327→            <Avatar className="h-9 w-9">
+   328→              <AvatarImage src={user?.image || undefined} />
+   329→              <AvatarFallback className="bg-gray-900 text-white text-sm">
+   330→                {user?.name?.charAt(0)?.toUpperCase() || 'A'}
+   331→              </AvatarFallback>
+   332→            </Avatar>
+   333→            <Button
+   334→              variant="ghost"
+   335→              size="icon"
+   336→              onClick={() => {
+   337→                logout()
+   338→                navigate('home')
+   339→              }}
+   340→              title="Logout"
+   341→            >
+   342→              <LogOut className="h-4 w-4" />
+   343→            </Button>
+   344→          </div>
+   345→        </header>
+   346→
+   347→        {/* Page content */}
+   348→        <main className="flex-1 p-4 md:p-6">{children}</main>
+   349→      </div>
+   350→    </div>
+   351→  )
+   352→}
+   353→
+   354→// ============================================================================
+   355→// AdminDashboardPage
+   356→// ============================================================================
+   357→
+   358→function AdminDashboardContent() {
+   359→  const [stats, setStats] = useState<AdminStats | null>(null)
+   360→  const [loading, setLoading] = useState(true)
+   361→
+   362→  useEffect(() => {
+   363→    async function fetchStats() {
+   364→      try {
+   365→        const res = await fetch('/api/admin?action=stats')
+   366→        if (!res.ok) throw new Error('Failed to fetch stats')
+   367→        const data = await res.json()
+   368→        setStats(data)
+   369→      } catch (err) {
+   370→        console.error('Failed to fetch admin stats:', err)
+   371→      } finally {
+   372→        setLoading(false)
+   373→      }
+   374→    }
+   375→    fetchStats()
+   376→  }, [])
+   377→
+   378→  const revenueChartConfig: ChartConfig = {
+   379→    revenue: { label: 'Revenue', color: '#22c55e' },
+   380→  }
+   381→
+   382→  const orderStatusChartConfig: ChartConfig = {
+   383→    count: { label: 'Orders' },
+   384→    PENDING: { label: 'Pending', color: '#f59e0b' },
+   385→    PAID: { label: 'Paid', color: '#22c55e' },
+   386→    PROCESSING: { label: 'Processing', color: '#3b82f6' },
+   387→    SHIPPED: { label: 'Shipped', color: '#8b5cf6' },
+   388→    DELIVERED: { label: 'Delivered', color: '#06b6d4' },
+   389→    CANCELLED: { label: 'Cancelled', color: '#ef4444' },
+   390→  }
+   391→
+   392→  if (loading) {
+   393→    return (
+   394→      <>
+   395→        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+   396→          {Array.from({ length: 4 }).map((_, i) => (
+   397→            <Skeleton key={i} className="h-32 rounded-xl" />
+   398→          ))}
+   399→        </div>
+   400→        <div className="mt-6 grid gap-6 lg:grid-cols-2">
+   401→          <Skeleton className="h-80 rounded-xl" />
+   402→          <Skeleton className="h-80 rounded-xl" />
+   403→        </div>
+   404→      </>
+   405→    )
+   406→  }
+   407→
+   408→  if (!stats) {
+   409→    return (
+   410→      <>
+   411→        <Card className="mx-auto max-w-md">
+   412→          <CardHeader className="text-center">
+   413→            <AlertTriangle className="mx-auto h-10 w-10 text-yellow-500" />
+   414→            <CardTitle>Unable to Load Dashboard</CardTitle>
+   415→            <CardDescription>Please try refreshing the page.</CardDescription>
+   416→          </CardHeader>
+   417→        </Card>
+   418→      </>
+   419→    )
+   420→  }
+   421→
+   422→  const statCards = [
+   423→    {
+   424→      title: 'Revenue',
+   425→      value: formatCurrency(stats.totalRevenue),
+   426→      change: stats.revenueChange,
+   427→      icon: DollarSign,
+   428→      bgColor: 'bg-green-50',
+   429→      iconColor: 'text-green-600',
+   430→      changeColor: stats.revenueChange >= 0 ? 'text-green-600' : 'text-red-600',
+   431→    },
+   432→    {
+   433→      title: 'Orders',
+   434→      value: stats.totalOrders.toLocaleString(),
+   435→      change: stats.orderChange,
+   436→      icon: ShoppingCart,
+   437→      bgColor: 'bg-blue-50',
+   438→      iconColor: 'text-blue-600',
+   439→      changeColor: stats.orderChange >= 0 ? 'text-green-600' : 'text-red-600',
+   440→    },
+   441→    {
+   442→      title: 'Customers',
+   443→      value: stats.totalCustomers.toLocaleString(),
+   444→      change: stats.customerChange,
+   445→      icon: Users,
+   446→      bgColor: 'bg-purple-50',
+   447→      iconColor: 'text-purple-600',
+   448→      changeColor: stats.customerChange >= 0 ? 'text-green-600' : 'text-red-600',
+   449→    },
+   450→    {
+   451→      title: 'Products',
+   452→      value: stats.totalProducts.toLocaleString(),
+   453→      change: 0,
+   454→      icon: Package,
+   455→      bgColor: 'bg-orange-50',
+   456→      iconColor: 'text-orange-600',
+   457→      changeColor: 'text-gray-500',
+   458→    },
+   459→  ]
+   460→
+   461→  return (
+   462→    <>
+   463→      {/* Stat cards */}
+   464→      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+   465→        {statCards.map((card) => (
+   466→          <Card key={card.title} className="relative overflow-hidden">
+   467→            <CardContent className="p-6">
+   468→              <div className="flex items-center justify-between">
+   469→                <div>
+   470→                  <p className="text-sm font-medium text-gray-500">{card.title}</p>
+   471→                  <p className="mt-1 text-2xl font-bold text-gray-900">{card.value}</p>
+   472→                  <div className="mt-2 flex items-center gap-1">
+   473→                    {card.change > 0 ? (
+   474→                      <TrendingUp className={`h-3.5 w-3.5 ${card.changeColor}`} />
+   475→                    ) : card.change < 0 ? (
+   476→                      <TrendingDown className={`h-3.5 w-3.5 ${card.changeColor}`} />
+   477→                    ) : null}
+   478→                    <span className={`text-xs font-medium ${card.changeColor}`}>
+   479→                      {card.change > 0 ? '+' : ''}
+   480→                      {card.change.toFixed(1)}%
+   481→                    </span>
+   482→                    <span className="text-xs text-gray-400">vs last month</span>
+   483→                  </div>
+   484→                </div>
+   485→                <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${card.bgColor}`}>
+   486→                  <card.icon className={`h-6 w-6 ${card.iconColor}`} />
+   487→                </div>
+   488→              </div>
+   489→            </CardContent>
+   490→          </Card>
+   491→        ))}
+   492→      </div>
+   493→
+   494→      {/* Charts */}
+   495→      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+   496→        {/* Revenue chart */}
+   497→        <Card>
+   498→          <CardHeader>
+   499→            <CardTitle className="text-base">Revenue Overview</CardTitle>
+   500→            <CardDescription>Last 6 months revenue</CardDescription>
+   501→          </CardHeader>
+   502→          <CardContent>
+   503→            <ChartContainer config={revenueChartConfig} className="h-64 w-full">
+   504→              <AreaChart data={stats.salesByMonth} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+   505→                <defs>
+   506→                  <linearGradient id="fillRevenue" x1="0" y1="0" x2="0" y2="1">
+   507→                    <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
+   508→                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0.05} />
+   509→                  </linearGradient>
+   510→                </defs>
+   511→                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+   512→                <XAxis dataKey="month" tickLine={false} axisLine={false} fontSize={12} />
+   513→                <YAxis tickLine={false} axisLine={false} fontSize={12} tickFormatter={(v: number) => `$${(v / 1000).toFixed(1)}k`} />
+   514→                <ChartTooltip content={<ChartTooltipContent />} />
+   515→                <Area
+   516→                  type="monotone"
+   517→                  dataKey="revenue"
+   518→                  stroke="#22c55e"
+   519→                  fill="url(#fillRevenue)"
+   520→                  strokeWidth={2}
+   521→                  name="revenue"
+   522→                />
+   523→              </AreaChart>
+   524→            </ChartContainer>
+   525→          </CardContent>
+   526→        </Card>
+   527→
+   528→        {/* Orders by status pie */}
+   529→        <Card>
+   530→          <CardHeader>
+   531→            <CardTitle className="text-base">Orders by Status</CardTitle>
+   532→            <CardDescription>Current distribution</CardDescription>
+   533→          </CardHeader>
+   534→          <CardContent>
+   535→            <ChartContainer config={orderStatusChartConfig} className="h-64 w-full">
+   536→              <PieChart>
+   537→                <ChartTooltip content={<ChartTooltipContent nameKey="status" />} />
+   538→                <Pie
+   539→                  data={stats.ordersByStatus}
+   540→                  cx="50%"
+   541→                  cy="50%"
+   542→                  innerRadius={55}
+   543→                  outerRadius={90}
+   544→                  paddingAngle={3}
+   545→                  dataKey="count"
+   546→                  nameKey="status"
+   547→                >
+   548→                  {stats.ordersByStatus.map((_, index) => (
+   549→                    <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+   550→                  ))}
+   551→                </Pie>
+   552→              </PieChart>
+   553→            </ChartContainer>
+   554→            <div className="mt-2 flex flex-wrap justify-center gap-3">
+   555→              {stats.ordersByStatus.map((item, i) => (
+   556→                <div key={item.status} className="flex items-center gap-1.5 text-xs">
+   557→                  <div
+   558→                    className="h-2.5 w-2.5 rounded-full"
+   559→                    style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }}
+   560→                  />
+   561→                  <span className="text-gray-600">{item.status}</span>
+   562→                  <span className="font-medium text-gray-900">({item.count})</span>
+   563→                </div>
+   564→              ))}
+   565→            </div>
+   566→          </CardContent>
+   567→        </Card>
+   568→      </div>
+   569→
+   570→      {/* Recent Orders + Top Products */}
+   571→      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+   572→        {/* Recent Orders */}
+   573→        <Card>
+   574→          <CardHeader>
+   575→            <CardTitle className="text-base">Recent Orders</CardTitle>
+   576→          </CardHeader>
+   577→          <CardContent className="p-0">
+   578→            <Table>
+   579→              <TableHeader>
+   580→                <TableRow>
+   581→                  <TableHead>Order #</TableHead>
+   582→                  <TableHead>Status</TableHead>
+   583→                  <TableHead className="text-right">Total</TableHead>
+   584→                  <TableHead>Date</TableHead>
+   585→                </TableRow>
+   586→              </TableHeader>
+   587→              <TableBody>
+   588→                {stats.recentOrders.length === 0 ? (
+   589→                  <TableRow>
+   590→                    <TableCell colSpan={4} className="text-center text-gray-500 py-8">
+   591→                      No orders yet
+   592→                    </TableCell>
+   593→                  </TableRow>
+   594→                ) : (
+   595→                  stats.recentOrders.slice(0, 10).map((order) => (
+   596→                    <TableRow key={order.id}>
+   597→                      <TableCell className="font-medium text-sm">
+   598→                        #{order.orderNumber}
+   599→                      </TableCell>
+   600→                      <TableCell>
+   601→                        <StatusBadge status={order.status} />
+   602→                      </TableCell>
+   603→                      <TableCell className="text-right text-sm">
+   604→                        {formatCurrency(order.totalAmount)}
+   605→                      </TableCell>
+   606→                      <TableCell className="text-sm text-gray-500">
+   607→                        {formatDate(order.createdAt)}
+   608→                      </TableCell>
+   609→                    </TableRow>
+   610→                  ))
+   611→                )}
+   612→              </TableBody>
+   613→            </Table>
+   614→          </CardContent>
+   615→        </Card>
+   616→
+   617→        {/* Top Products */}
+   618→        <Card>
+   619→          <CardHeader>
+   620→            <CardTitle className="text-base">Top Products</CardTitle>
+   621→          </CardHeader>
+   622→          <CardContent>
+   623→            {stats.topProducts.length === 0 ? (
+   624→              <p className="text-center text-gray-500 py-8">No product data yet</p>
+   625→            ) : (
+   626→              <div className="space-y-4">
+   627→                {stats.topProducts.map((tp, idx) => {
+   628→                  const images: string[] = tp.product.images ? JSON.parse(tp.product.images) : []
+   629→                  return (
+   630→                    <div key={tp.product.id} className="flex items-center gap-4">
+   631→                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-sm font-bold text-gray-600">
+   632→                        {idx + 1}
+   633→                      </span>
+   634→                      {images[0] ? (
+   635→                        <img
+   636→                          src={images[0]}
+   637→                          alt={tp.product.name}
+   638→                          className="h-10 w-10 rounded-lg object-cover"
+   639→                        />
+   640→                      ) : (
+   641→                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100">
+   642→                          <Package className="h-5 w-5 text-gray-400" />
+   643→                        </div>
+   644→                      )}
+   645→                      <div className="flex-1 min-w-0">
+   646→                        <p className="truncate text-sm font-medium text-gray-900">
+   647→                          {tp.product.name}
+   648→                        </p>
+   649→                        <p className="text-xs text-gray-500">{tp.totalSold} units sold</p>
+   650→                      </div>
+   651→                      <p className="text-sm font-semibold text-gray-900">
+   652→                        {formatCurrency(tp.revenue)}
+   653→                      </p>
+   654→                    </div>
+   655→                  )
+   656→                })}
+   657→              </div>
+   658→            )}
+   659→          </CardContent>
+   660→        </Card>
+   661→      </div>
+   662→    </>
+   663→  )
+   664→}
+   665→
+   666→// ============================================================================
+   667→// AdminProductsPage
+   668→// ============================================================================
+   669→
+   670→interface AdminProduct {
+   671→  id: string
+   672→  name: string
+   673→  slug: string
+   674→  price: number
+   675→  comparePrice: number | null
+   676→  images: string
+   677→  isActive: boolean
+   678→  isFeatured: boolean
+   679→  category: { name: string } | null
+   680→  brand: { name: string } | null
+   681→  inventory: { quantity: number; reserved: number }[]
+   682→}
+   683→
+   684→function AdminProductsContent() {
+   685→  const { navigate } = useRouterStore()
+   686→  const [products, setProducts] = useState<AdminProduct[]>([])
+   687→  const [loading, setLoading] = useState(true)
+   688→  const [search, setSearch] = useState('')
+   689→  const [showAddDialog, setShowAddDialog] = useState(false)
+   690→  const [saving, setSaving] = useState(false)
+   691→
+   692→  // Add product form state
+   693→  const [formName, setFormName] = useState('')
+   694→  const [formDesc, setFormDesc] = useState('')
+   695→  const [formPrice, setFormPrice] = useState('')
+   696→  const [formComparePrice, setFormComparePrice] = useState('')
+   697→  const [formCategory, setFormCategory] = useState('')
+   698→  const [formBrand, setFormBrand] = useState('')
+   699→  const [formStock, setFormStock] = useState('')
+   700→  const [formImages, setFormImages] = useState('')
+   701→
+   702→  const fetchProducts = useCallback(async () => {
+   703→    try {
+   704→      const res = await fetch('/api/admin?action=products')
+   705→      if (!res.ok) throw new Error('Failed')
+   706→      const data = await res.json()
+   707→      setProducts(data)
+   708→    } catch (err) {
+   709→      console.error('Failed to fetch products:', err)
+   710→    } finally {
+   711→      setLoading(false)
+   712→    }
+   713→  }, [])
+   714→
+   715→  useEffect(() => {
+   716→    fetchProducts()
+   717→  }, [fetchProducts])
+   718→
+   719→  const filteredProducts = products.filter((p) =>
+   720→    p.name.toLowerCase().includes(search.toLowerCase()) ||
+   721→    p.category?.name?.toLowerCase().includes(search.toLowerCase()) ||
+   722→    p.brand?.name?.toLowerCase().includes(search.toLowerCase())
+   723→  )
+   724→
+   725→  async function handleToggleActive(product: AdminProduct) {
+   726→    try {
+   727→      const res = await fetch('/api/admin', {
+   728→        method: 'PUT',
+   729→        headers: { 'Content-Type': 'application/json' },
+   730→        body: JSON.stringify({
+   731→          action: 'update-product',
+   732→          id: product.id,
+   733→          data: { isActive: !product.isActive },
+   734→        }),
+   735→      })
+   736→      if (!res.ok) throw new Error('Failed')
+   737→      toast({ title: `Product ${product.isActive ? 'deactivated' : 'activated'}` })
+   738→      fetchProducts()
+   739→    } catch {
+   740→      toast({ title: 'Failed to update product', variant: 'destructive' })
+   741→    }
+   742→  }
+   743→
+   744→  async function handleDeleteProduct(id: string) {
+   745→    try {
+   746→      const res = await fetch(`/api/admin?action=delete-product&id=${id}`, { method: 'DELETE' })
+   747→      if (!res.ok) throw new Error('Failed')
+   748→      toast({ title: 'Product deleted' })
+   749→      fetchProducts()
+   750→    } catch {
+   751→      toast({ title: 'Failed to delete product', variant: 'destructive' })
+   752→    }
+   753→  }
+   754→
+   755→  async function handleAddProduct() {
+   756→    setSaving(true)
+   757→    try {
+   758→      const res = await fetch('/api/admin', {
+   759→        method: 'POST',
+   760→        headers: { 'Content-Type': 'application/json' },
+   761→        body: JSON.stringify({
+   762→          action: 'create-product',
+   763→          data: {
+   764→            name: formName,
+   765→            description: formDesc,
+   766→            price: parseFloat(formPrice) || 0,
+   767→            comparePrice: formComparePrice ? parseFloat(formComparePrice) : null,
+   768→            category: formCategory,
+   769→            brand: formBrand,
+   770→            stock: parseInt(formStock) || 0,
+   771→            images: formImages ? formImages.split(',').map((s) => s.trim()) : [],
+   772→          },
+   773→        }),
+   774→      })
+   775→      if (!res.ok) throw new Error('Failed')
+   776→      toast({ title: 'Product created successfully' })
+   777→      setShowAddDialog(false)
+   778→      resetForm()
+   779→      fetchProducts()
+   780→    } catch {
+   781→      toast({ title: 'Failed to create product', variant: 'destructive' })
+   782→    } finally {
+   783→      setSaving(false)
+   784→    }
+   785→  }
+   786→
+   787→  function resetForm() {
+   788→    setFormName('')
+   789→    setFormDesc('')
+   790→    setFormPrice('')
+   791→    setFormComparePrice('')
+   792→    setFormCategory('')
+   793→    setFormBrand('')
+   794→    setFormStock('')
+   795→    setFormImages('')
+   796→  }
+   797→
+   798→  return (
+   799→    <>
+   800→      {/* Header bar */}
+   801→      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+   802→        <div className="relative flex-1 max-w-md">
+   803→          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+   804→          <Input
+   805→            placeholder="Search products..."
+   806→            value={search}
+   807→            onChange={(e) => setSearch(e.target.value)}
+   808→            className="pl-9"
+   809→          />
+   810→        </div>
+   811→        <Button onClick={() => setShowAddDialog(true)}>
+   812→          <Plus className="mr-2 h-4 w-4" />
+   813→          Add Product
+   814→        </Button>
+   815→      </div>
+   816→
+   817→      {/* Products table */}
+   818→      <Card>
+   819→        <CardContent className="p-0">
+   820→          {loading ? (
+   821→            <div className="p-6 space-y-4">
+   822→              {Array.from({ length: 5 }).map((_, i) => (
+   823→                <Skeleton key={i} className="h-12 w-full" />
+   824→              ))}
+   825→            </div>
+   826→          ) : (
+   827→            <Table>
+   828→              <TableHeader>
+   829→                <TableRow>
+   830→                  <TableHead>Image</TableHead>
+   831→                  <TableHead>Name</TableHead>
+   832→                  <TableHead className="hidden md:table-cell">Category</TableHead>
+   833→                  <TableHead className="hidden lg:table-cell">Brand</TableHead>
+   834→                  <TableHead>Price</TableHead>
+   835→                  <TableHead className="hidden sm:table-cell">Stock</TableHead>
+   836→                  <TableHead>Status</TableHead>
+   837→                  <TableHead className="text-right">Actions</TableHead>
+   838→                </TableRow>
+   839→              </TableHeader>
+   840→              <TableBody>
+   841→                {filteredProducts.length === 0 ? (
+   842→                  <TableRow>
+   843→                    <TableCell colSpan={8} className="text-center text-gray-500 py-8">
+   844→                      No products found
+   845→                    </TableCell>
+   846→                  </TableRow>
+   847→                ) : (
+   848→                  filteredProducts.map((product) => {
+   849→                    const images: string[] = product.images ? JSON.parse(product.images) : []
+   850→                    const totalStock = product.inventory?.reduce((s, inv) => s + inv.quantity, 0) || 0
+   851→                    return (
+   852→                      <TableRow key={product.id}>
+   853→                        <TableCell>
+   854→                          {images[0] ? (
+   855→                            <img
+   856→                              src={images[0]}
+   857→                              alt={product.name}
+   858→                              className="h-10 w-10 rounded-lg object-cover"
+   859→                            />
+   860→                          ) : (
+   861→                            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100">
+   862→                              <Package className="h-5 w-5 text-gray-400" />
+   863→                            </div>
+   864→                          )}
+   865→                        </TableCell>
+   866→                        <TableCell>
+   867→                          <p className="font-medium text-sm max-w-[200px] truncate">
+   868→                            {product.name}
+   869→                          </p>
+   870→                        </TableCell>
+   871→                        <TableCell className="hidden md:table-cell text-sm text-gray-500">
+   872→                          {product.category?.name || '—'}
+   873→                        </TableCell>
+   874→                        <TableCell className="hidden lg:table-cell text-sm text-gray-500">
+   875→                          {product.brand?.name || '—'}
+   876→                        </TableCell>
+   877→                        <TableCell>
+   878→                          <div className="flex items-center gap-1">
+   879→                            <span className="text-sm font-medium">
+   880→                              {formatCurrency(product.price)}
+   881→                            </span>
+   882→                            {product.comparePrice && product.comparePrice > product.price && (
+   883→                              <span className="text-xs text-gray-400 line-through">
+   884→                                {formatCurrency(product.comparePrice)}
+   885→                              </span>
+   886→                            )}
+   887→                          </div>
+   888→                        </TableCell>
+   889→                        <TableCell className="hidden sm:table-cell">
+   890→                          <span
+   891→                            className={`text-sm font-medium ${
+   892→                              totalStock <= 10 ? 'text-red-600' : 'text-gray-700'
+   893→                            }`}
+   894→                          >
+   895→                            {totalStock}
+   896→                          </span>
+   897→                        </TableCell>
+   898→                        <TableCell>
+   899→                          <StatusBadge status={product.isActive ? 'ACTIVE' : 'INACTIVE'} />
+   900→                        </TableCell>
+   901→                        <TableCell className="text-right">
+   902→                          <DropdownMenu>
+   903→                            <DropdownMenuTrigger asChild>
+   904→                              <Button variant="ghost" size="icon" className="h-8 w-8">
+   905→                                <MoreHorizontal className="h-4 w-4" />
+   906→                              </Button>
+   907→                            </DropdownMenuTrigger>
+   908→                            <DropdownMenuContent align="end">
+   909→                              <DropdownMenuItem onClick={() => navigate('product-detail', { id: product.id })}>
+   910→                                <Eye className="mr-2 h-4 w-4" />
+   911→                                View
+   912→                              </DropdownMenuItem>
+   913→                              <DropdownMenuItem onClick={() => handleToggleActive(product)}>
+   914→                                {product.isActive ? (
+   915→                                  <XCircle className="mr-2 h-4 w-4" />
+   916→                                ) : (
+   917→                                  <CheckCircle2 className="mr-2 h-4 w-4" />
+   918→                                )}
+   919→                                {product.isActive ? 'Deactivate' : 'Activate'}
+   920→                              </DropdownMenuItem>
+   921→                              <DropdownMenuSeparator />
+   922→                              <DropdownMenuItem
+   923→                                variant="destructive"
+   924→                                onClick={() => handleDeleteProduct(product.id)}
+   925→                              >
+   926→                                <Trash2 className="mr-2 h-4 w-4" />
+   927→                                Delete
+   928→                              </DropdownMenuItem>
+   929→                            </DropdownMenuContent>
+   930→                          </DropdownMenu>
+   931→                        </TableCell>
+   932→                      </TableRow>
+   933→                    )
+   934→                  })
+   935→                )}
+   936→              </TableBody>
+   937→            </Table>
+   938→          )}
+   939→        </CardContent>
+   940→      </Card>
+   941→
+   942→      {/* Add Product Dialog */}
+   943→      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+   944→        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+   945→          <DialogHeader>
+   946→            <DialogTitle>Add Product</DialogTitle>
+   947→            <DialogDescription>Create a new product listing.</DialogDescription>
+   948→          </DialogHeader>
+   949→          <div className="grid gap-4 py-4">
+   950→            <div className="grid gap-2">
+   951→              <Label htmlFor="prod-name">Product Name</Label>
+   952→              <Input
+   953→                id="prod-name"
+   954→                value={formName}
+   955→                onChange={(e) => setFormName(e.target.value)}
+   956→                placeholder="Enter product name"
+   957→              />
+   958→            </div>
+   959→            <div className="grid gap-2">
+   960→              <Label htmlFor="prod-desc">Description</Label>
+   961→              <Textarea
+   962→                id="prod-desc"
+   963→                value={formDesc}
+   964→                onChange={(e) => setFormDesc(e.target.value)}
+   965→                placeholder="Enter product description"
+   966→                rows={3}
+   967→              />
+   968→            </div>
+   969→            <div className="grid grid-cols-2 gap-4">
+   970→              <div className="grid gap-2">
+   971→                <Label htmlFor="prod-price">Price</Label>
+   972→                <Input
+   973→                  id="prod-price"
+   974→                  type="number"
+   975→                  step="0.01"
+   976→                  value={formPrice}
+   977→                  onChange={(e) => setFormPrice(e.target.value)}
+   978→                  placeholder="0.00"
+   979→                />
+   980→              </div>
+   981→              <div className="grid gap-2">
+   982→                <Label htmlFor="prod-compare">Compare Price</Label>
+   983→                <Input
+   984→                  id="prod-compare"
+   985→                  type="number"
+   986→                  step="0.01"
+   987→                  value={formComparePrice}
+   988→                  onChange={(e) => setFormComparePrice(e.target.value)}
+   989→                  placeholder="0.00"
+   990→                />
+   991→              </div>
+   992→            </div>
+   993→            <div className="grid grid-cols-2 gap-4">
+   994→              <div className="grid gap-2">
+   995→                <Label htmlFor="prod-category">Category</Label>
+   996→                <Input
+   997→                  id="prod-category"
+   998→                  value={formCategory}
+   999→                  onChange={(e) => setFormCategory(e.target.value)}
+  1000→                  placeholder="Category name"
+  1001→                />
+  1002→              </div>
+  1003→              <div className="grid gap-2">
+  1004→                <Label htmlFor="prod-brand">Brand</Label>
+  1005→                <Input
+  1006→                  id="prod-brand"
+  1007→                  value={formBrand}
+  1008→                  onChange={(e) => setFormBrand(e.target.value)}
+  1009→                  placeholder="Brand name"
+  1010→                />
+  1011→              </div>
+  1012→            </div>
+  1013→            <div className="grid gap-2">
+  1014→              <Label htmlFor="prod-stock">Stock Quantity</Label>
+  1015→              <Input
+  1016→                id="prod-stock"
+  1017→                type="number"
+  1018→                value={formStock}
+  1019→                onChange={(e) => setFormStock(e.target.value)}
+  1020→                placeholder="0"
+  1021→              />
+  1022→            </div>
+  1023→            <div className="grid gap-2">
+  1024→              <Label htmlFor="prod-images">Image URLs</Label>
+  1025→              <Input
+  1026→                id="prod-images"
+  1027→                value={formImages}
+  1028→                onChange={(e) => setFormImages(e.target.value)}
+  1029→                placeholder="Comma-separated image URLs"
+  1030→              />
+  1031→              <p className="text-xs text-gray-500">Separate multiple URLs with commas</p>
+  1032→            </div>
+  1033→          </div>
+  1034→          <DialogFooter>
+  1035→            <Button variant="outline" onClick={() => setShowAddDialog(false)}>
+  1036→              Cancel
+  1037→            </Button>
+  1038→            <Button onClick={handleAddProduct} disabled={saving || !formName || !formPrice}>
+  1039→              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+  1040→              Create Product
+  1041→            </Button>
+  1042→          </DialogFooter>
+  1043→        </DialogContent>
+  1044→      </Dialog>
+  1045→    </>
+  1046→  )
+  1047→}
+  1048→
+  1049→// ============================================================================
+  1050→// AdminOrdersPage
+  1051→// ============================================================================
+  1052→
+  1053→interface AdminOrder {
+  1054→  id: string
+  1055→  orderNumber: string
+  1056→  status: string
+  1057→  totalAmount: number
+  1058→  createdAt: string
+  1059→  user: { id: string; name: string | null; email: string } | null
+  1060→  items: { id: string; productName: string; quantity: number; total: number }[]
+  1061→  payment: { status: string; method: string } | null
+  1062→}
+  1063→
+  1064→function AdminOrdersContent() {
+  1065→  const { navigate } = useRouterStore()
+  1066→  const [orders, setOrders] = useState<AdminOrder[]>([])
+  1067→  const [loading, setLoading] = useState(true)
+  1068→  const [activeTab, setActiveTab] = useState('ALL')
+  1069→  const [statusDialogOrder, setStatusDialogOrder] = useState<AdminOrder | null>(null)
+  1070→  const [newStatus, setNewStatus] = useState('')
+  1071→  const [saving, setSaving] = useState(false)
+  1072→
+  1073→  const fetchOrders = useCallback(async (status?: string) => {
+  1074→    setLoading(true)
+  1075→    try {
+  1076→      const url = status && status !== 'ALL'
+  1077→        ? `/api/admin?action=orders&status=${status}`
+  1078→        : '/api/admin?action=orders'
+  1079→      const res = await fetch(url)
+  1080→      if (!res.ok) throw new Error('Failed')
+  1081→      const data = await res.json()
+  1082→      setOrders(data)
+  1083→    } catch (err) {
+  1084→      console.error('Failed to fetch orders:', err)
+  1085→    } finally {
+  1086→      setLoading(false)
+  1087→    }
+  1088→  }, [])
+  1089→
+  1090→  useEffect(() => {
+  1091→    fetchOrders(activeTab)
+  1092→  }, [activeTab, fetchOrders])
+  1093→
+  1094→  async function handleUpdateStatus() {
+  1095→    if (!statusDialogOrder || !newStatus) return
+  1096→    setSaving(true)
+  1097→    try {
+  1098→      const res = await fetch('/api/admin', {
+  1099→        method: 'PUT',
+  1100→        headers: { 'Content-Type': 'application/json' },
+  1101→        body: JSON.stringify({
+  1102→          action: 'update-order-status',
+  1103→          id: statusDialogOrder.id,
+  1104→          data: { status: newStatus },
+  1105→        }),
+  1106→      })
+  1107→      if (!res.ok) throw new Error('Failed')
+  1108→      toast({ title: 'Order status updated' })
+  1109→      setStatusDialogOrder(null)
+  1110→      fetchOrders(activeTab)
+  1111→    } catch {
+  1112→      toast({ title: 'Failed to update status', variant: 'destructive' })
+  1113→    } finally {
+  1114→      setSaving(false)
+  1115→    }
+  1116→  }
+  1117→
+  1118→  const orderStatuses = ['ALL', 'PENDING', 'PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED']
+  1119→
+  1120→  return (
+  1121→    <>
+  1122→      {/* Filter tabs */}
+  1123→      <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
+  1124→        <TabsList className="flex-wrap h-auto gap-1">
+  1125→          {orderStatuses.map((status) => (
+  1126→            <TabsTrigger key={status} value={status} className="text-xs px-3">
+  1127→              {status === 'ALL' ? 'All' : status.charAt(0) + status.slice(1).toLowerCase()}
+  1128→            </TabsTrigger>
+  1129→          ))}
+  1130→        </TabsList>
+  1131→      </Tabs>
+  1132→
+  1133→      {/* Orders table */}
+  1134→      <Card>
+  1135→        <CardContent className="p-0">
+  1136→          {loading ? (
+  1137→            <div className="p-6 space-y-4">
+  1138→              {Array.from({ length: 5 }).map((_, i) => (
+  1139→                <Skeleton key={i} className="h-12 w-full" />
+  1140→              ))}
+  1141→            </div>
+  1142→          ) : (
+  1143→            <Table>
+  1144→              <TableHeader>
+  1145→                <TableRow>
+  1146→                  <TableHead>Order #</TableHead>
+  1147→                  <TableHead>Customer</TableHead>
+  1148→                  <TableHead className="hidden md:table-cell">Items</TableHead>
+  1149→                  <TableHead>Total</TableHead>
+  1150→                  <TableHead>Status</TableHead>
+  1151→                  <TableHead className="hidden sm:table-cell">Date</TableHead>
+  1152→                  <TableHead className="text-right">Actions</TableHead>
+  1153→                </TableRow>
+  1154→              </TableHeader>
+  1155→              <TableBody>
+  1156→                {orders.length === 0 ? (
+  1157→                  <TableRow>
+  1158→                    <TableCell colSpan={7} className="text-center text-gray-500 py-8">
+  1159→                      No orders found
+  1160→                    </TableCell>
+  1161→                  </TableRow>
+  1162→                ) : (
+  1163→                  orders.map((order) => (
+  1164→                    <TableRow key={order.id}>
+  1165→                      <TableCell className="font-medium text-sm">
+  1166→                        #{order.orderNumber}
+  1167→                      </TableCell>
+  1168→                      <TableCell className="text-sm">
+  1169→                        {order.user?.name || order.user?.email || 'Guest'}
+  1170→                      </TableCell>
+  1171→                      <TableCell className="hidden md:table-cell text-sm text-gray-500">
+  1172→                        {order.items.length} item{order.items.length !== 1 ? 's' : ''}
+  1173→                      </TableCell>
+  1174→                      <TableCell className="text-sm font-medium">
+  1175→                        {formatCurrency(order.totalAmount)}
+  1176→                      </TableCell>
+  1177→                      <TableCell>
+  1178→                        <StatusBadge status={order.status} />
+  1179→                      </TableCell>
+  1180→                      <TableCell className="hidden sm:table-cell text-sm text-gray-500">
+  1181→                        {formatDate(order.createdAt)}
+  1182→                      </TableCell>
+  1183→                      <TableCell className="text-right">
+  1184→                        <DropdownMenu>
+  1185→                          <DropdownMenuTrigger asChild>
+  1186→                            <Button variant="ghost" size="icon" className="h-8 w-8">
+  1187→                              <MoreHorizontal className="h-4 w-4" />
+  1188→                            </Button>
+  1189→                          </DropdownMenuTrigger>
+  1190→                          <DropdownMenuContent align="end">
+  1191→                            <DropdownMenuItem
+  1192→                              onClick={() => navigate('account-order-detail', { id: order.id })}
+  1193→                            >
+  1194→                              <Eye className="mr-2 h-4 w-4" />
+  1195→                              View Details
+  1196→                            </DropdownMenuItem>
+  1197→                            <DropdownMenuItem
+  1198→                              onClick={() => {
+  1199→                                setStatusDialogOrder(order)
+  1200→                                setNewStatus(order.status)
+  1201→                              }}
+  1202→                            >
+  1203→                              <ArrowUpDown className="mr-2 h-4 w-4" />
+  1204→                              Update Status
+  1205→                            </DropdownMenuItem>
+  1206→                          </DropdownMenuContent>
+  1207→                        </DropdownMenu>
+  1208→                      </TableCell>
+  1209→                    </TableRow>
+  1210→                  ))
+  1211→                )}
+  1212→              </TableBody>
+  1213→            </Table>
+  1214→          )}
+  1215→        </CardContent>
+  1216→      </Card>
+  1217→
+  1218→      {/* Update Status Dialog */}
+  1219→      <Dialog open={!!statusDialogOrder} onOpenChange={(open) => !open && setStatusDialogOrder(null)}>
+  1220→        <DialogContent className="sm:max-w-md">
+  1221→          <DialogHeader>
+  1222→            <DialogTitle>Update Order Status</DialogTitle>
+  1223→            <DialogDescription>
+  1224→              Order #{statusDialogOrder?.orderNumber}
+  1225→            </DialogDescription>
+  1226→          </DialogHeader>
+  1227→          <div className="py-4">
+  1228→            <Label htmlFor="order-status">New Status</Label>
+  1229→            <Select value={newStatus} onValueChange={setNewStatus}>
+  1230→              <SelectTrigger className="mt-2 w-full">
+  1231→                <SelectValue placeholder="Select status" />
+  1232→              </SelectTrigger>
+  1233→              <SelectContent>
+  1234→                {['PENDING', 'PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'].map((s) => (
+  1235→                  <SelectItem key={s} value={s}>
+  1236→                    {s.charAt(0) + s.slice(1).toLowerCase()}
+  1237→                  </SelectItem>
+  1238→                ))}
+  1239→              </SelectContent>
+  1240→            </Select>
+  1241→          </div>
+  1242→          <DialogFooter>
+  1243→            <Button variant="outline" onClick={() => setStatusDialogOrder(null)}>
+  1244→              Cancel
+  1245→            </Button>
+  1246→            <Button onClick={handleUpdateStatus} disabled={saving || newStatus === statusDialogOrder?.status}>
+  1247→              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+  1248→              Update
+  1249→            </Button>
+  1250→          </DialogFooter>
+  1251→        </DialogContent>
+  1252→      </Dialog>
+  1253→    </>
+  1254→  )
+  1255→}
+  1256→
+  1257→// ============================================================================
+  1258→// AdminCustomersPage
+  1259→// ============================================================================
+  1260→
+  1261→interface AdminCustomer {
+  1262→  id: string
+  1263→  name: string | null
+  1264→  email: string
+  1265→  image: string | null
+  1266→  isActive: boolean
+  1267→  createdAt: string
+  1268→  _count: { orders: number }
+  1269→  orders: { totalAmount: number }[]
+  1270→}
+  1271→
+  1272→function AdminCustomersContent() {
+  1273→  const [customers, setCustomers] = useState<AdminCustomer[]>([])
+  1274→  const [loading, setLoading] = useState(true)
+  1275→  const [search, setSearch] = useState('')
+  1276→  const [selectedCustomer, setSelectedCustomer] = useState<AdminCustomer | null>(null)
+  1277→
+  1278→  const fetchCustomers = useCallback(async () => {
+  1279→    try {
+  1280→      const res = await fetch('/api/admin?action=customers')
+  1281→      if (!res.ok) throw new Error('Failed')
+  1282→      const data = await res.json()
+  1283→      setCustomers(data)
+  1284→    } catch (err) {
+  1285→      console.error('Failed to fetch customers:', err)
+  1286→    } finally {
+  1287→      setLoading(false)
+  1288→    }
+  1289→  }, [])
+  1290→
+  1291→  useEffect(() => {
+  1292→    fetchCustomers()
+  1293→  }, [fetchCustomers])
+  1294→
+  1295→  async function handleToggleDisable(customer: AdminCustomer) {
+  1296→    try {
+  1297→      const res = await fetch('/api/admin', {
+  1298→        method: 'PUT',
+  1299→        headers: { 'Content-Type': 'application/json' },
+  1300→        body: JSON.stringify({
+  1301→          action: 'toggle-user',
+  1302→          id: customer.id,
+  1303→          data: { isActive: !customer.isActive },
+  1304→        }),
+  1305→      })
+  1306→      if (!res.ok) throw new Error('Failed')
+  1307→      toast({ title: `Customer ${customer.isActive ? 'disabled' : 'enabled'}` })
+  1308→      fetchCustomers()
+  1309→    } catch {
+  1310→      toast({ title: 'Failed to update customer', variant: 'destructive' })
+  1311→    }
+  1312→  }
+  1313→
+  1314→  const filteredCustomers = customers.filter(
+  1315→    (c) =>
+  1316→      (c.name || '').toLowerCase().includes(search.toLowerCase()) ||
+  1317→      c.email.toLowerCase().includes(search.toLowerCase())
+  1318→  )
+  1319→
+  1320→  return (
+  1321→    <>
+  1322→      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+  1323→        <div className="relative flex-1 max-w-md">
+  1324→          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+  1325→          <Input
+  1326→            placeholder="Search customers..."
+  1327→            value={search}
+  1328→            onChange={(e) => setSearch(e.target.value)}
+  1329→            className="pl-9"
+  1330→          />
+  1331→        </div>
+  1332→      </div>
+  1333→
+  1334→      <Card>
+  1335→        <CardContent className="p-0">
+  1336→          {loading ? (
+  1337→            <div className="p-6 space-y-4">
+  1338→              {Array.from({ length: 5 }).map((_, i) => (
+  1339→                <Skeleton key={i} className="h-12 w-full" />
+  1340→              ))}
+  1341→            </div>
+  1342→          ) : (
+  1343→            <Table>
+  1344→              <TableHeader>
+  1345→                <TableRow>
+  1346→                  <TableHead>Customer</TableHead>
+  1347→                  <TableHead className="hidden sm:table-cell">Orders</TableHead>
+  1348→                  <TableHead>Total Spent</TableHead>
+  1349→                  <TableHead>Status</TableHead>
+  1350→                  <TableHead className="text-right">Actions</TableHead>
+  1351→                </TableRow>
+  1352→              </TableHeader>
+  1353→              <TableBody>
+  1354→                {filteredCustomers.length === 0 ? (
+  1355→                  <TableRow>
+  1356→                    <TableCell colSpan={5} className="text-center text-gray-500 py-8">
+  1357→                      No customers found
+  1358→                    </TableCell>
+  1359→                  </TableRow>
+  1360→                ) : (
+  1361→                  filteredCustomers.map((customer) => {
+  1362→                    const totalSpent = customer.orders?.reduce((s, o) => s + o.totalAmount, 0) || 0
+  1363→                    return (
+  1364→                      <TableRow key={customer.id}>
+  1365→                        <TableCell>
+  1366→                          <div className="flex items-center gap-3">
+  1367→                            <Avatar className="h-8 w-8">
+  1368→                              <AvatarImage src={customer.image || undefined} />
+  1369→                              <AvatarFallback className="text-xs bg-gray-100">
+  1370→                                {customer.name?.charAt(0)?.toUpperCase() || customer.email.charAt(0).toUpperCase()}
+  1371→                              </AvatarFallback>
+  1372→                            </Avatar>
+  1373→                            <div>
+  1374→                              <p className="text-sm font-medium">{customer.name || 'Unnamed'}</p>
+  1375→                              <p className="text-xs text-gray-500">{customer.email}</p>
+  1376→                            </div>
+  1377→                          </div>
+  1378→                        </TableCell>
+  1379→                        <TableCell className="hidden sm:table-cell text-sm">
+  1380→                          {customer._count?.orders || 0}
+  1381→                        </TableCell>
+  1382→                        <TableCell className="text-sm font-medium">
+  1383→                          {formatCurrency(totalSpent)}
+  1384→                        </TableCell>
+  1385→                        <TableCell>
+  1386→                          <StatusBadge status={customer.isActive ? 'ACTIVE' : 'INACTIVE'} />
+  1387→                        </TableCell>
+  1388→                        <TableCell className="text-right">
+  1389→                          <DropdownMenu>
+  1390→                            <DropdownMenuTrigger asChild>
+  1391→                              <Button variant="ghost" size="icon" className="h-8 w-8">
+  1392→                                <MoreHorizontal className="h-4 w-4" />
+  1393→                              </Button>
+  1394→                            </DropdownMenuTrigger>
+  1395→                            <DropdownMenuContent align="end">
+  1396→                              <DropdownMenuItem onClick={() => setSelectedCustomer(customer)}>
+  1397→                                <Eye className="mr-2 h-4 w-4" />
+  1398→                                View Details
+  1399→                              </DropdownMenuItem>
+  1400→                              <DropdownMenuItem onClick={() => handleToggleDisable(customer)}>
+  1401→                                {customer.isActive ? (
+  1402→                                  <XCircle className="mr-2 h-4 w-4" />
+  1403→                                ) : (
+  1404→                                  <CheckCircle2 className="mr-2 h-4 w-4" />
+  1405→                                )}
+  1406→                                {customer.isActive ? 'Disable' : 'Enable'}
+  1407→                              </DropdownMenuItem>
+  1408→                            </DropdownMenuContent>
+  1409→                          </DropdownMenu>
+  1410→                        </TableCell>
+  1411→                      </TableRow>
+  1412→                    )
+  1413→                  })
+  1414→                )}
+  1415→              </TableBody>
+  1416→            </Table>
+  1417→          )}
+  1418→        </CardContent>
+  1419→      </Card>
+  1420→
+  1421→      {/* Customer Detail Dialog */}
+  1422→      <Dialog open={!!selectedCustomer} onOpenChange={(open) => !open && setSelectedCustomer(null)}>
+  1423→        <DialogContent className="sm:max-w-md">
+  1424→          <DialogHeader>
+  1425→            <DialogTitle>Customer Details</DialogTitle>
+  1426→          </DialogHeader>
+  1427→          {selectedCustomer && (
+  1428→            <div className="space-y-4 py-2">
+  1429→              <div className="flex items-center gap-4">
+  1430→                <Avatar className="h-14 w-14">
+  1431→                  <AvatarImage src={selectedCustomer.image || undefined} />
+  1432→                  <AvatarFallback className="text-lg bg-gray-100">
+  1433→                    {selectedCustomer.name?.charAt(0)?.toUpperCase() || 'U'}
+  1434→                  </AvatarFallback>
+  1435→                </Avatar>
+  1436→                <div>
+  1437→                  <p className="font-semibold text-lg">{selectedCustomer.name || 'Unnamed'}</p>
+  1438→                  <p className="text-sm text-gray-500">{selectedCustomer.email}</p>
+  1439→                </div>
+  1440→              </div>
+  1441→              <Separator />
+  1442→              <div className="grid grid-cols-2 gap-4 text-sm">
+  1443→                <div>
+  1444→                  <p className="text-gray-500">Total Orders</p>
+  1445→                  <p className="font-semibold">{selectedCustomer._count?.orders || 0}</p>
+  1446→                </div>
+  1447→                <div>
+  1448→                  <p className="text-gray-500">Total Spent</p>
+  1449→                  <p className="font-semibold">
+  1450→                    {formatCurrency(selectedCustomer.orders?.reduce((s, o) => s + o.totalAmount, 0) || 0)}
+  1451→                  </p>
+  1452→                </div>
+  1453→                <div>
+  1454→                  <p className="text-gray-500">Status</p>
+  1455→                  <StatusBadge status={selectedCustomer.isActive ? 'ACTIVE' : 'INACTIVE'} />
+  1456→                </div>
+  1457→                <div>
+  1458→                  <p className="text-gray-500">Joined</p>
+  1459→                  <p className="font-medium">{formatDate(selectedCustomer.createdAt)}</p>
+  1460→                </div>
+  1461→              </div>
+  1462→            </div>
+  1463→          )}
+  1464→        </DialogContent>
+  1465→      </Dialog>
+  1466→    </>
+  1467→  )
+  1468→}
+  1469→
+  1470→// ============================================================================
+  1471→// AdminCouponsPage
+  1472→// ============================================================================
+  1473→
+  1474→function AdminCouponsContent() {
+  1475→  const [coupons, setCoupons] = useState<CouponDisplay[]>([])
+  1476→  const [loading, setLoading] = useState(true)
+  1477→  const [showCreateDialog, setShowCreateDialog] = useState(false)
+  1478→  const [saving, setSaving] = useState(false)
+  1479→
+  1480→  // Form state
+  1481→  const [formCode, setFormCode] = useState('')
+  1482→  const [formType, setFormType] = useState('PERCENTAGE')
+  1483→  const [formValue, setFormValue] = useState('')
+  1484→  const [formMinPurchase, setFormMinPurchase] = useState('')
+  1485→  const [formMaxDiscount, setFormMaxDiscount] = useState('')
+  1486→  const [formUsageLimit, setFormUsageLimit] = useState('')
+  1487→  const [formExpiresAt, setFormExpiresAt] = useState('')
+  1488→
+  1489→  const fetchCoupons = useCallback(async () => {
+  1490→    try {
+  1491→      const res = await fetch('/api/admin?action=coupons')
+  1492→      if (!res.ok) throw new Error('Failed')
+  1493→      const data = await res.json()
+  1494→      setCoupons(data)
+  1495→    } catch (err) {
+  1496→      console.error('Failed to fetch coupons:', err)
+  1497→    } finally {
+  1498→      setLoading(false)
+  1499→    }
+  1500→  }, [])
+  1501→
+  1502→  useEffect(() => {
+  1503→    fetchCoupons()
+  1504→  }, [fetchCoupons])
+  1505→
+  1506→  async function handleCreateCoupon() {
+  1507→    setSaving(true)
+  1508→    try {
+  1509→      const res = await fetch('/api/admin', {
+  1510→        method: 'POST',
+  1511→        headers: { 'Content-Type': 'application/json' },
+  1512→        body: JSON.stringify({
+  1513→          action: 'create-coupon',
+  1514→          data: {
+  1515→            code: formCode.toUpperCase(),
+  1516→            type: formType,
+  1517→            value: parseFloat(formValue) || 0,
+  1518→            minPurchase: parseFloat(formMinPurchase) || 0,
+  1519→            maxDiscount: formMaxDiscount ? parseFloat(formMaxDiscount) : null,
+  1520→            usageLimit: formUsageLimit ? parseInt(formUsageLimit) : null,
+  1521→            perUserLimit: 1,
+  1522→            isActive: true,
+  1523→            startsAt: new Date().toISOString(),
+  1524→            expiresAt: formExpiresAt ? new Date(formExpiresAt).toISOString() : null,
+  1525→          },
+  1526→        }),
+  1527→      })
+  1528→      if (!res.ok) throw new Error('Failed')
+  1529→      toast({ title: 'Coupon created successfully' })
+  1530→      setShowCreateDialog(false)
+  1531→      resetCouponForm()
+  1532→      fetchCoupons()
+  1533→    } catch {
+  1534→      toast({ title: 'Failed to create coupon', variant: 'destructive' })
+  1535→    } finally {
+  1536→      setSaving(false)
+  1537→    }
+  1538→  }
+  1539→
+  1540→  async function handleDeleteCoupon(id: string) {
+  1541→    try {
+  1542→      const res = await fetch(`/api/admin?action=delete-coupon&id=${id}`, { method: 'DELETE' })
+  1543→      if (!res.ok) throw new Error('Failed')
+  1544→      toast({ title: 'Coupon deleted' })
+  1545→      fetchCoupons()
+  1546→    } catch {
+  1547→      toast({ title: 'Failed to delete coupon', variant: 'destructive' })
+  1548→    }
+  1549→  }
+  1550→
+  1551→  async function handleToggleCoupon(coupon: CouponDisplay) {
+  1552→    try {
+  1553→      const res = await fetch('/api/admin', {
+  1554→        method: 'PUT',
+  1555→        headers: { 'Content-Type': 'application/json' },
+  1556→        body: JSON.stringify({
+  1557→          action: 'update-coupon',
+  1558→          id: coupon.id,
+  1559→          data: { isActive: !coupon.isActive },
+  1560→        }),
+  1561→      })
+  1562→      if (!res.ok) throw new Error('Failed')
+  1563→      toast({ title: `Coupon ${coupon.isActive ? 'deactivated' : 'activated'}` })
+  1564→      fetchCoupons()
+  1565→    } catch {
+  1566→      toast({ title: 'Failed to update coupon', variant: 'destructive' })
+  1567→    }
+  1568→  }
+  1569→
+  1570→  function resetCouponForm() {
+  1571→    setFormCode('')
+  1572→    setFormType('PERCENTAGE')
+  1573→    setFormValue('')
+  1574→    setFormMinPurchase('')
+  1575→    setFormMaxDiscount('')
+  1576→    setFormUsageLimit('')
+  1577→    setFormExpiresAt('')
+  1578→  }
+  1579→
+  1580→  return (
+  1581→    <>
+  1582→      <div className="flex items-center justify-between mb-6">
+  1583→        <h2 className="text-lg font-semibold text-gray-700">
+  1584→          {coupons.length} coupon{coupons.length !== 1 ? 's' : ''}
+  1585→        </h2>
+  1586→        <Button onClick={() => setShowCreateDialog(true)}>
+  1587→          <Plus className="mr-2 h-4 w-4" />
+  1588→          Create Coupon
+  1589→        </Button>
+  1590→      </div>
+  1591→
+  1592→      <Card>
+  1593→        <CardContent className="p-0">
+  1594→          {loading ? (
+  1595→            <div className="p-6 space-y-4">
+  1596→              {Array.from({ length: 3 }).map((_, i) => (
+  1597→                <Skeleton key={i} className="h-12 w-full" />
+  1598→              ))}
+  1599→            </div>
+  1600→          ) : (
+  1601→            <Table>
+  1602→              <TableHeader>
+  1603→                <TableRow>
+  1604→                  <TableHead>Code</TableHead>
+  1605→                  <TableHead>Type</TableHead>
+  1606→                  <TableHead>Value</TableHead>
+  1607→                  <TableHead className="hidden md:table-cell">Min Purchase</TableHead>
+  1608→                  <TableHead className="hidden sm:table-cell">Usage</TableHead>
+  1609→                  <TableHead>Status</TableHead>
+  1610→                  <TableHead className="text-right">Actions</TableHead>
+  1611→                </TableRow>
+  1612→              </TableHeader>
+  1613→              <TableBody>
+  1614→                {coupons.length === 0 ? (
+  1615→                  <TableRow>
+  1616→                    <TableCell colSpan={7} className="text-center text-gray-500 py-8">
+  1617→                      No coupons found
+  1618→                    </TableCell>
+  1619→                  </TableRow>
+  1620→                ) : (
+  1621→                  coupons.map((coupon) => (
+  1622→                    <TableRow key={coupon.id}>
+  1623→                      <TableCell>
+  1624→                        <div className="flex items-center gap-2">
+  1625→                          <code className="rounded bg-gray-100 px-2 py-1 text-sm font-mono font-semibold">
+  1626→                            {coupon.code}
+  1627→                          </code>
+  1628→                          <Button
+  1629→                            variant="ghost"
+  1630→                                            size="icon"
+  1631→                                            className="h-6 w-6"
+  1632→                                            onClick={() => {
+  1633→                                              navigator.clipboard.writeText(coupon.code)
+  1634→                                              toast({ title: 'Code copied!' })
+  1635→                                            }}
+  1636→                                          >
+  1637→                                            <Copy className="h-3 w-3" />
+  1638→                                          </Button>
+  1639→                        </div>
+  1640→                      </TableCell>
+  1641→                      <TableCell className="text-sm">
+  1642→                        {coupon.type === 'PERCENTAGE' ? 'Percentage' : 'Fixed'}
+  1643→                      </TableCell>
+  1644→                      <TableCell className="text-sm font-medium">
+  1645→                        {coupon.type === 'PERCENTAGE' ? `${coupon.value}%` : formatCurrency(coupon.value)}
+  1646→                      </TableCell>
+  1647→                      <TableCell className="hidden md:table-cell text-sm text-gray-500">
+  1648→                        {formatCurrency(coupon.minPurchase)}
+  1649→                      </TableCell>
+  1650→                      <TableCell className="hidden sm:table-cell text-sm text-gray-500">
+  1651→                        {coupon.usedCount}/{coupon.usageLimit || '∞'}
+  1652→                      </TableCell>
+  1653→                      <TableCell>
+  1654→                        <StatusBadge status={coupon.isActive ? 'ACTIVE' : 'INACTIVE'} />
+  1655→                      </TableCell>
+  1656→                      <TableCell className="text-right">
+  1657→                        <DropdownMenu>
+  1658→                          <DropdownMenuTrigger asChild>
+  1659→                            <Button variant="ghost" size="icon" className="h-8 w-8">
+  1660→                              <MoreHorizontal className="h-4 w-4" />
+  1661→                            </Button>
+  1662→                          </DropdownMenuTrigger>
+  1663→                          <DropdownMenuContent align="end">
+  1664→                            <DropdownMenuItem onClick={() => handleToggleCoupon(coupon)}>
+  1665→                              {coupon.isActive ? (
+  1666→                                <XCircle className="mr-2 h-4 w-4" />
+  1667→                              ) : (
+  1668→                                <CheckCircle2 className="mr-2 h-4 w-4" />
+  1669→                              )}
+  1670→                              {coupon.isActive ? 'Deactivate' : 'Activate'}
+  1671→                            </DropdownMenuItem>
+  1672→                            <DropdownMenuSeparator />
+  1673→                            <DropdownMenuItem variant="destructive" onClick={() => handleDeleteCoupon(coupon.id)}>
+  1674→                              <Trash2 className="mr-2 h-4 w-4" />
+  1675→                              Delete
+  1676→                            </DropdownMenuItem>
+  1677→                          </DropdownMenuContent>
+  1678→                        </DropdownMenu>
+  1679→                      </TableCell>
+  1680→                    </TableRow>
+  1681→                  ))
+  1682→                )}
+  1683→              </TableBody>
+  1684→            </Table>
+  1685→          )}
+  1686→        </CardContent>
+  1687→      </Card>
+  1688→
+  1689→      {/* Create Coupon Dialog */}
+  1690→      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+  1691→        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
+  1692→          <DialogHeader>
+  1693→            <DialogTitle>Create Coupon</DialogTitle>
+  1694→            <DialogDescription>Create a new discount coupon for your store.</DialogDescription>
+  1695→          </DialogHeader>
+  1696→          <div className="grid gap-4 py-4">
+  1697→            <div className="grid gap-2">
+  1698→              <Label htmlFor="coupon-code">Coupon Code</Label>
+  1699→              <Input
+  1700→                id="coupon-code"
+  1701→                value={formCode}
+  1702→                onChange={(e) => setFormCode(e.target.value.toUpperCase())}
+  1703→                placeholder="e.g. SUMMER2024"
+  1704→                className="uppercase"
+  1705→              />
+  1706→            </div>
+  1707→            <div className="grid grid-cols-2 gap-4">
+  1708→              <div className="grid gap-2">
+  1709→                <Label htmlFor="coupon-type">Type</Label>
+  1710→                <Select value={formType} onValueChange={setFormType}>
+  1711→                  <SelectTrigger id="coupon-type">
+  1712→                    <SelectValue />
+  1713→                  </SelectTrigger>
+  1714→                  <SelectContent>
+  1715→                    <SelectItem value="PERCENTAGE">Percentage</SelectItem>
+  1716→                    <SelectItem value="FIXED">Fixed Amount</SelectItem>
+  1717→                  </SelectContent>
+  1718→                </Select>
+  1719→              </div>
+  1720→              <div className="grid gap-2">
+  1721→                <Label htmlFor="coupon-value">Value</Label>
+  1722→                <Input
+  1723→                  id="coupon-value"
+  1724→                  type="number"
+  1725→                  step="0.01"
+  1726→                  value={formValue}
+  1727→                  onChange={(e) => setFormValue(e.target.value)}
+  1728→                  placeholder={formType === 'PERCENTAGE' ? '10' : '5.00'}
+  1729→                />
+  1730→              </div>
+  1731→            </div>
+  1732→            <div className="grid grid-cols-2 gap-4">
+  1733→              <div className="grid gap-2">
+  1734→                <Label htmlFor="coupon-min">Min Purchase</Label>
+  1735→                <Input
+  1736→                  id="coupon-min"
+  1737→                  type="number"
+  1738→                  step="0.01"
+  1739→                  value={formMinPurchase}
+  1740→                  onChange={(e) => setFormMinPurchase(e.target.value)}
+  1741→                  placeholder="0.00"
+  1742→                />
+  1743→              </div>
+  1744→              <div className="grid gap-2">
+  1745→                <Label htmlFor="coupon-max">Max Discount</Label>
+  1746→                <Input
+  1747→                  id="coupon-max"
+  1748→                  type="number"
+  1749→                  step="0.01"
+  1750→                  value={formMaxDiscount}
+  1751→                  onChange={(e) => setFormMaxDiscount(e.target.value)}
+  1752→                  placeholder="No limit"
+  1753→                />
+  1754→              </div>
+  1755→            </div>
+  1756→            <div className="grid grid-cols-2 gap-4">
+  1757→              <div className="grid gap-2">
+  1758→                <Label htmlFor="coupon-usage">Usage Limit</Label>
+  1759→                <Input
+  1760→                  id="coupon-usage"
+  1761→                  type="number"
+  1762→                  value={formUsageLimit}
+  1763→                  onChange={(e) => setFormUsageLimit(e.target.value)}
+  1764→                  placeholder="Unlimited"
+  1765→                />
+  1766→              </div>
+  1767→              <div className="grid gap-2">
+  1768→                <Label htmlFor="coupon-expires">Expires At</Label>
+  1769→                <Input
+  1770→                  id="coupon-expires"
+  1771→                  type="date"
+  1772→                  value={formExpiresAt}
+  1773→                  onChange={(e) => setFormExpiresAt(e.target.value)}
+  1774→                />
+  1775→              </div>
+  1776→            </div>
+  1777→          </div>
+  1778→          <DialogFooter>
+  1779→            <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
+  1780→              Cancel
+  1781→            </Button>
+  1782→            <Button onClick={handleCreateCoupon} disabled={saving || !formCode || !formValue}>
+  1783→              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+  1784→              Create Coupon
+  1785→            </Button>
+  1786→          </DialogFooter>
+  1787→        </DialogContent>
+  1788→      </Dialog>
+  1789→    </>
+  1790→  )
+  1791→}
+  1792→
+  1793→// ============================================================================
+  1794→// AdminReviewsPage
+  1795→// ============================================================================
+  1796→
+  1797→interface AdminReview {
+  1798→  id: string
+  1799→  rating: number
+  1800→  title: string | null
+  1801→  content: string | null
+  1802→  isApproved: boolean | null
+  1803→  createdAt: string
+  1804→  user: { name: string | null; email: string }
+  1805→  product: { name: string; images: string }
+  1806→}
+  1807→
+  1808→function AdminReviewsContent() {
+  1809→  const [reviews, setReviews] = useState<AdminReview[]>([])
+  1810→  const [loading, setLoading] = useState(true)
+  1811→  const [filter, setFilter] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('ALL')
+  1812→
+  1813→  const fetchReviews = useCallback(async () => {
+  1814→    try {
+  1815→      const res = await fetch('/api/admin?action=reviews')
+  1816→      if (!res.ok) throw new Error('Failed')
+  1817→      const data = await res.json()
+  1818→      setReviews(data)
+  1819→    } catch (err) {
+  1820→      console.error('Failed to fetch reviews:', err)
+  1821→    } finally {
+  1822→      setLoading(false)
+  1823→    }
+  1824→  }, [])
+  1825→
+  1826→  useEffect(() => {
+  1827→    fetchReviews()
+  1828→  }, [fetchReviews])
+  1829→
+  1830→  async function handleApprove(id: string) {
+  1831→    try {
+  1832→      const res = await fetch('/api/admin', {
+  1833→        method: 'PUT',
+  1834→        headers: { 'Content-Type': 'application/json' },
+  1835→        body: JSON.stringify({ action: 'approve-review', id, data: { isApproved: true } }),
+  1836→      })
+  1837→      if (!res.ok) throw new Error('Failed')
+  1838→      toast({ title: 'Review approved' })
+  1839→      fetchReviews()
+  1840→    } catch {
+  1841→      toast({ title: 'Failed to approve review', variant: 'destructive' })
+  1842→    }
+  1843→  }
+  1844→
+  1845→  async function handleReject(id: string) {
+  1846→    try {
+  1847→      const res = await fetch('/api/admin', {
+  1848→        method: 'PUT',
+  1849→        headers: { 'Content-Type': 'application/json' },
+  1850→        body: JSON.stringify({ action: 'approve-review', id, data: { isApproved: false } }),
+  1851→      })
+  1852→      if (!res.ok) throw new Error('Failed')
+  1853→      toast({ title: 'Review rejected' })
+  1854→      fetchReviews()
+  1855→    } catch {
+  1856→      toast({ title: 'Failed to reject review', variant: 'destructive' })
+  1857→    }
+  1858→  }
+  1859→
+  1860→  async function handleDelete(id: string) {
+  1861→    try {
+  1862→      const res = await fetch(`/api/admin?action=delete-review&id=${id}`, { method: 'DELETE' })
+  1863→      if (!res.ok) throw new Error('Failed')
+  1864→      toast({ title: 'Review deleted' })
+  1865→      fetchReviews()
+  1866→    } catch {
+  1867→      toast({ title: 'Failed to delete review', variant: 'destructive' })
+  1868→    }
+  1869→  }
+  1870→
+  1871→  function getReviewStatus(review: AdminReview): 'Pending' | 'Approved' | 'Rejected' {
+  1872→    if (review.isApproved === true) return 'Approved'
+  1873→    if (review.isApproved === false) return 'Rejected'
+  1874→    return 'Pending'
+  1875→  }
+  1876→
+  1877→  const filteredReviews = reviews.filter((r) => {
+  1878→    if (filter === 'ALL') return true
+  1879→    const status = getReviewStatus(r)
+  1880→    return status.toUpperCase() === filter
+  1881→  })
+  1882→
+  1883→  return (
+  1884→    <>
+  1885→      <Tabs value={filter} onValueChange={(v) => setFilter(v as typeof filter)} className="mb-6">
+  1886→        <TabsList>
+  1887→          <TabsTrigger value="ALL">All</TabsTrigger>
+  1888→          <TabsTrigger value="PENDING">Pending</TabsTrigger>
+  1889→          <TabsTrigger value="APPROVED">Approved</TabsTrigger>
+  1890→          <TabsTrigger value="REJECTED">Rejected</TabsTrigger>
+  1891→        </TabsList>
+  1892→      </Tabs>
+  1893→
+  1894→      <Card>
+  1895→        <CardContent className="p-0">
+  1896→          {loading ? (
+  1897→            <div className="p-6 space-y-4">
+  1898→              {Array.from({ length: 5 }).map((_, i) => (
+  1899→                <Skeleton key={i} className="h-12 w-full" />
+  1900→              ))}
+  1901→            </div>
+  1902→          ) : (
+  1903→            <Table>
+  1904→              <TableHeader>
+  1905→                <TableRow>
+  1906→                  <TableHead>Product</TableHead>
+  1907→                  <TableHead>User</TableHead>
+  1908→                  <TableHead>Rating</TableHead>
+  1909→                  <TableHead className="hidden md:table-cell">Title</TableHead>
+  1910→                  <TableHead>Status</TableHead>
+  1911→                  <TableHead className="text-right">Actions</TableHead>
+  1912→                </TableRow>
+  1913→              </TableHeader>
+  1914→              <TableBody>
+  1915→                {filteredReviews.length === 0 ? (
+  1916→                  <TableRow>
+  1917→                    <TableCell colSpan={6} className="text-center text-gray-500 py-8">
+  1918→                      No reviews found
+  1919→                    </TableCell>
+  1920→                  </TableRow>
+  1921→                ) : (
+  1922→                  filteredReviews.map((review) => (
+  1923→                    <TableRow key={review.id}>
+  1924→                      <TableCell className="text-sm max-w-[150px] truncate">
+  1925→                        {review.product?.name || 'Unknown Product'}
+  1926→                      </TableCell>
+  1927→                      <TableCell className="text-sm text-gray-600">
+  1928→                        {review.user?.name || review.user?.email || 'Anonymous'}
+  1929→                      </TableCell>
+  1930→                      <TableCell><StarRating rating={review.rating} /></TableCell>
+  1931→                      <TableCell className="hidden md:table-cell text-sm text-gray-500 max-w-[200px] truncate">
+  1932→                        {review.title || '—'}
+  1933→                      </TableCell>
+  1934→                      <TableCell>
+  1935→                        <StatusBadge status={getReviewStatus(review)} />
+  1936→                      </TableCell>
+  1937→                      <TableCell className="text-right">
+  1938→                        <DropdownMenu>
+  1939→                          <DropdownMenuTrigger asChild>
+  1940→                            <Button variant="ghost" size="icon" className="h-8 w-8">
+  1941→                              <MoreHorizontal className="h-4 w-4" />
+  1942→                            </Button>
+  1943→                          </DropdownMenuTrigger>
+  1944→                          <DropdownMenuContent align="end">
+  1945→                            {getReviewStatus(review) !== 'Approved' && (
+  1946→                              <DropdownMenuItem onClick={() => handleApprove(review.id)}>
+  1947→                                <CheckCircle2 className="mr-2 h-4 w-4 text-green-600" />
+  1948→                                Approve
+  1949→                              </DropdownMenuItem>
+  1950→                            )}
+  1951→                            {getReviewStatus(review) !== 'Rejected' && (
+  1952→                              <DropdownMenuItem onClick={() => handleReject(review.id)}>
+  1953→                                <XCircle className="mr-2 h-4 w-4 text-red-600" />
+  1954→                                Reject
+  1955→                              </DropdownMenuItem>
+  1956→                            )}
+  1957→                            <DropdownMenuSeparator />
+  1958→                            <DropdownMenuItem variant="destructive" onClick={() => handleDelete(review.id)}>
+  1959→                              <Trash2 className="mr-2 h-4 w-4" />
+  1960→                              Delete
+  1961→                            </DropdownMenuItem>
+  1962→                          </DropdownMenuContent>
+  1963→                        </DropdownMenu>
+  1964→                      </TableCell>
+  1965→                    </TableRow>
+  1966→                  ))
+  1967→                )}
+  1968→              </TableBody>
+  1969→            </Table>
+  1970→          )}
+  1971→        </CardContent>
+  1972→      </Card>
+  1973→    </>
+  1974→  )
+  1975→}
+  1976→
+  1977→// ============================================================================
+  1978→// AdminSettingsPage
+  1979→// ============================================================================
+  1980→
+  1981→interface StoreSettings {
+  1982→  storeName?: string
+  1983→  taxRate?: number
+  1984→  freeShippingMin?: number
+  1985→  currency?: string
+  1986→  [key: string]: unknown
+  1987→}
+  1988→
+  1989→function AdminSettingsContent() {
+  1990→  const [settings, setSettings] = useState<StoreSettings>({})
+  1991→  const [loading, setLoading] = useState(true)
+  1992→  const [saving, setSaving] = useState(false)
+  1993→
+  1994→  useEffect(() => {
+  1995→    async function fetchSettings() {
+  1996→      try {
+  1997→        const res = await fetch('/api/admin?action=settings')
+  1998→        if (!res.ok) throw new Error('Failed')
+  1999→        const data = await res.json()
+  2000→        setSettings(data)
+
+[showing lines 1-2000 of 2204; use offset=2001 with limit to continue reading]

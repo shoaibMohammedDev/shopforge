@@ -1,27 +1,28 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { productQuerySchema } from '@/lib/validators'
+import { handleApiError } from '@/lib/errors'
+import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
 
 // GET /api/products - List products with filters, search, pagination
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
-    const search = searchParams.get('search') || undefined
-    const categoryIdParam = searchParams.get('categoryId') || undefined
-    const brandIdParam = searchParams.get('brandId') || undefined
-    const categoryIds = categoryIdParam ? categoryIdParam.split(',') : undefined
-    const brandIds = brandIdParam ? brandIdParam.split(',') : undefined
-    const minPrice = searchParams.get('minPrice')
-    const maxPrice = searchParams.get('maxPrice')
-    const minRating = searchParams.get('minRating')
-    const sort = searchParams.get('sort') || 'newest'
-    const page = parseInt(searchParams.get('page') || '1')
-    const limit = parseInt(searchParams.get('limit') || '12')
-    const isFeatured = searchParams.get('isFeatured') === 'true'
-    const tag = searchParams.get('tag') || undefined
+    const params = Object.fromEntries(searchParams.entries())
 
-    const where: Record<string, unknown> = {
-      isActive: true,
+    // Validate query parameters with Zod
+    const parsed = productQuerySchema.safeParse(params)
+    if (!parsed.success) {
+      const errors = parsed.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('; ')
+      return NextResponse.json(
+        { success: false, error: errors, code: 'VALIDATION_ERROR' },
+        { status: 400 }
+      )
     }
+
+    const { search, categoryId, brandId, minPrice, maxPrice, minRating, sort, page, limit, isFeatured, tag } = parsed.data
+
+    const where: Record<string, unknown> = { isActive: true }
 
     if (search) {
       where.OR = [
@@ -32,30 +33,22 @@ export async function GET(request: Request) {
       ]
     }
 
-    if (categoryIds && categoryIds.length > 0) {
-      if (categoryIds.length === 1) {
-        where.categoryId = categoryIds[0]
-      } else {
-        where.categoryId = { in: categoryIds }
-      }
+    if (categoryId) {
+      where.categoryId = categoryId
     }
 
-    if (brandIds && brandIds.length > 0) {
-      if (brandIds.length === 1) {
-        where.brandId = brandIds[0]
-      } else {
-        where.brandId = { in: brandIds }
-      }
+    if (brandId) {
+      where.brandId = brandId
     }
 
-    if (minPrice || maxPrice) {
+    if (minPrice !== undefined || maxPrice !== undefined) {
       where.price = {}
-      if (minPrice) (where.price as Record<string, number>).gte = parseFloat(minPrice)
-      if (maxPrice) (where.price as Record<string, number>).lte = parseFloat(maxPrice)
+      if (minPrice !== undefined) (where.price as Record<string, number>).gte = minPrice
+      if (maxPrice !== undefined) (where.price as Record<string, number>).lte = maxPrice
     }
 
-    if (minRating) {
-      where.avgRating = { gte: parseFloat(minRating) }
+    if (minRating !== undefined) {
+      where.avgRating = { gte: minRating }
     }
 
     if (isFeatured) {
@@ -82,7 +75,7 @@ export async function GET(request: Request) {
           brand: { select: { id: true, name: true, slug: true } },
           inventory: { select: { quantity: true, reserved: true } },
           tags: { select: { tag: true } },
-          flashSales: {
+          flashSaleProduct: {
             where: { flashSale: { isActive: true, startsAt: { lte: new Date() }, endsAt: { gte: new Date() } } },
             include: { flashSale: { select: { isActive: true, startsAt: true, endsAt: true } } },
           },
@@ -102,7 +95,6 @@ export async function GET(request: Request) {
       totalPages: Math.ceil(total / limit),
     })
   } catch (error) {
-    console.error('Products API error:', error)
-    return NextResponse.json({ error: 'Failed to fetch products' }, { status: 500 })
+    return handleApiError(error)
   }
 }

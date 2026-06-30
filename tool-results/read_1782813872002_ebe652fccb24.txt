@@ -1,0 +1,931 @@
+     1→'use client'
+     2→
+     3→import { useState, useEffect, useCallback, useMemo } from 'react'
+     4→import { useQuery } from '@tanstack/react-query'
+     5→import { motion } from 'framer-motion'
+     6→import {
+     7→  Smartphone,
+     8→  Laptop,
+     9→  Headphones,
+    10→  Shirt,
+    11→  Home as HomeIcon,
+    12→  Dumbbell,
+    13→  BookOpen,
+    14→  Sparkles,
+    15→  Heart,
+    16→  ShoppingCart,
+    17→  Star,
+    18→  ChevronRight,
+    19→  Zap,
+    20→  Timer,
+    21→  Mail,
+    22→  Package,
+    23→  Users,
+    24→  ShieldCheck,
+    25→  Headset,
+    26→  ArrowRight,
+    27→} from 'lucide-react'
+    28→import { useRouterStore } from '@/stores/router-store'
+    29→import { useCartStore } from '@/stores/cart-store'
+    30→import { useWishlistStore } from '@/stores/wishlist-store'
+    31→import { api } from '@/lib/api-client'
+    32→import type {
+    33→  ProductListItem,
+    34→  CategoryDisplay,
+    35→  BrandDisplay,
+    36→  PaginatedResponse,
+    37→} from '@/types'
+    38→
+    39→import { Button } from '@/components/ui/button'
+    40→import { Card, CardContent } from '@/components/ui/card'
+    41→import { Badge } from '@/components/ui/badge'
+    42→import { Skeleton } from '@/components/ui/skeleton'
+    43→import { Input } from '@/components/ui/input'
+    44→import {
+    45→  Carousel,
+    46→  CarouselContent,
+    47→  CarouselItem,
+    48→  CarouselPrevious,
+    49→  CarouselNext,
+    50→  type CarouselApi,
+    51→} from '@/components/ui/carousel'
+    52→
+    53→// ============================================================================
+    54→// Star Rating Component
+    55→// ============================================================================
+    56→
+    57→function StarRating({ rating, count }: { rating: number; count?: number }) {
+    58→  return (
+    59→    <div className="flex items-center gap-1">
+    60→      <div className="flex">
+    61→        {[1, 2, 3, 4, 5].map((star) => (
+    62→          <Star
+    63→            key={star}
+    64→            className={`h-3.5 w-3.5 ${
+    65→              star <= Math.round(rating)
+    66→                ? 'text-amber-400 fill-amber-400'
+    67→                : 'text-gray-300'
+    68→            }`}
+    69→          />
+    70→        ))}
+    71→      </div>
+    72→      {count !== undefined && (
+    73→        <span className="text-xs text-muted-foreground">({count})</span>
+    74→      )}
+    75→    </div>
+    76→  )
+    77→}
+    78→
+    79→// ============================================================================
+    80→// Animation Variants
+    81→// ============================================================================
+    82→
+    83→const fadeInUp = {
+    84→  hidden: { opacity: 0, y: 24 },
+    85→  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' } },
+    86→}
+    87→
+    88→const fadeIn = {
+    89→  hidden: { opacity: 0 },
+    90→  visible: { opacity: 1, transition: { duration: 0.4, ease: 'easeOut' } },
+    91→}
+    92→
+    93→const staggerContainer = {
+    94→  hidden: { opacity: 0 },
+    95→  visible: {
+    96→    opacity: 1,
+    97→    transition: { staggerChildren: 0.08, delayChildren: 0.1 },
+    98→  },
+    99→}
+   100→
+   101→const staggerItem = {
+   102→  hidden: { opacity: 0, y: 16 },
+   103→  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
+   104→}
+   105→
+   106→// ============================================================================
+   107→// Hero Banner Data
+   108→// ============================================================================
+   109→
+   110→const heroSlides = [
+   111→  {
+   112→    title: 'Summer Collection 2025',
+   113→    subtitle: 'Discover the latest trends with up to 40% off on premium styles',
+   114→    cta: 'Shop Now',
+   115→    gradient: 'from-emerald-600 via-teal-500 to-emerald-400',
+   116→    accent: 'text-emerald-50',
+   117→    route: 'products' as const,
+   118→  },
+   119→  {
+   120→    title: 'Tech Essentials Sale',
+   121→    subtitle: 'Top-rated gadgets and electronics at unbeatable prices',
+   122→    cta: 'Explore Deals',
+   123→    gradient: 'from-amber-500 via-orange-500 to-amber-400',
+   124→    accent: 'text-amber-50',
+   125→    route: 'products' as const,
+   126→  },
+   127→  {
+   128→    title: 'New Arrivals',
+   129→    subtitle: 'Be the first to shop our freshest picks and exclusive items',
+   130→    cta: 'View Collection',
+   131→    gradient: 'from-violet-600 via-purple-500 to-violet-400',
+   132→    accent: 'text-violet-50',
+   133→    route: 'products' as const,
+   134→  },
+   135→]
+   136→
+   137→// ============================================================================
+   138→// Category Icon Map
+   139→// ============================================================================
+   140→
+   141→const categoryIconMap: Record<string, { icon: React.ElementType; color: string; bg: string }> = {
+   142→  electronics: { icon: Smartphone, color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30' },
+   143→  computers: { icon: Laptop, color: 'text-indigo-600', bg: 'bg-indigo-100 dark:bg-indigo-900/30' },
+   144→  audio: { icon: Headphones, color: 'text-purple-600', bg: 'bg-purple-100 dark:bg-purple-900/30' },
+   145→  clothing: { icon: Shirt, color: 'text-pink-600', bg: 'bg-pink-100 dark:bg-pink-900/30' },
+   146→  home: { icon: HomeIcon, color: 'text-amber-600', bg: 'bg-amber-100 dark:bg-amber-900/30' },
+   147→  sports: { icon: Dumbbell, color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30' },
+   148→  books: { icon: BookOpen, color: 'text-teal-600', bg: 'bg-teal-100 dark:bg-teal-900/30' },
+   149→  default: { icon: Sparkles, color: 'text-rose-600', bg: 'bg-rose-100 dark:bg-rose-900/30' },
+   150→}
+   151→
+   152→function getCategoryStyle(slug: string) {
+   153→  const normalized = slug.toLowerCase()
+   154→  for (const [key, style] of Object.entries(categoryIconMap)) {
+   155→    if (normalized.includes(key)) return style
+   156→  }
+   157→  return categoryIconMap.default
+   158→}
+   159→
+   160→// ============================================================================
+   161→// Stats Data
+   162→// ============================================================================
+   163→
+   164→const stats = [
+   165→  { icon: Package, label: '10K+ Products', color: 'text-emerald-600' },
+   166→  { icon: Users, label: '50K+ Customers', color: 'text-blue-600' },
+   167→  { icon: ShieldCheck, label: '99.9% Uptime', color: 'text-amber-600' },
+   168→  { icon: Headset, label: '24/7 Support', color: 'text-violet-600' },
+   169→]
+   170→
+   171→// ============================================================================
+   172→// Helper: Parse product images
+   173→// ============================================================================
+   174→
+   175→function parseImages(imagesStr: string): string[] {
+   176→  try {
+   177→    const parsed = JSON.parse(imagesStr)
+   178→    return Array.isArray(parsed) ? parsed : []
+   179→  } catch {
+   180→    return []
+   181→  }
+   182→}
+   183→
+   184→function formatPrice(price: number): string {
+   185→  return new Intl.NumberFormat('en-US', {
+   186→    style: 'currency',
+   187→    currency: 'USD',
+   188→  }).format(price)
+   189→}
+   190→
+   191→// ============================================================================
+   192→// Reusable Product Card Component
+   193→// ============================================================================
+   194→
+   195→function ProductCard({ product }: { product: ProductListItem }) {
+   196→  const navigate = useRouterStore((s) => s.navigate)
+   197→  const addItem = useCartStore((s) => s.addItem)
+   198→  const toggleItem = useWishlistStore((s) => s.toggleItem)
+   199→  const isInWishlist = useWishlistStore((s) => s.isInWishlist)
+   200→  const wishlisted = isInWishlist(product.id)
+   201→
+   202→  const images = parseImages(product.images)
+   203→  const hasDiscount = product.comparePrice && product.comparePrice > product.price
+   204→  const discountPercent = hasDiscount
+   205→    ? Math.round(((product.comparePrice! - product.price) / product.comparePrice!) * 100)
+   206→    : 0
+   207→
+   208→  const displayPrice =
+   209→    product.flashSaleProduct?.salePrice ?? product.price
+   210→
+   211→  const handleAddToCart = useCallback(
+   212→    (e: React.MouseEvent) => {
+   213→      e.stopPropagation()
+   214→      addItem({
+   215→        productId: product.id,
+   216→        name: product.name,
+   217→        slug: product.slug,
+   218→        price: displayPrice,
+   219→        comparePrice: product.comparePrice ?? undefined,
+   220→        image: images[0] ?? '',
+   221→        quantity: 1,
+   222→        sku: product.slug,
+   223→      })
+   224→    },
+   225→    [addItem, product, images, displayPrice]
+   226→  )
+   227→
+   228→  const handleWishlist = useCallback(
+   229→    (e: React.MouseEvent) => {
+   230→      e.stopPropagation()
+   231→      toggleItem(product.id)
+   232→    },
+   233→    [toggleItem, product.id]
+   234→  )
+   235→
+   236→  const handleNavigate = useCallback(() => {
+   237→    navigate('product-detail', { id: product.id, slug: product.slug })
+   238→  }, [navigate, product.id, product.slug])
+   239→
+   240→  return (
+   241→    <motion.div variants={staggerItem} className="group">
+   242→      <Card
+   243→        className="overflow-hidden cursor-pointer transition-shadow hover:shadow-lg py-0 gap-0"
+   244→        onClick={handleNavigate}
+   245→      >
+   246→        {/* Image / Gradient placeholder */}
+   247→        <div className="relative aspect-square overflow-hidden bg-muted">
+   248→          {images[0] ? (
+   249→            <img
+   250→              src={images[0]}
+   251→              alt={product.name}
+   252→              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+   253→            />
+   254→          ) : (
+   255→            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-800">
+   256→              <span className="text-4xl font-bold text-slate-400 dark:text-slate-500">
+   257→                {product.name.charAt(0).toUpperCase()}
+   258→              </span>
+   259→            </div>
+   260→          )}
+   261→
+   262→          {/* Discount badge */}
+   263→          {discountPercent > 0 && (
+   264→            <Badge className="absolute top-2 left-2 bg-red-500 text-white hover:bg-red-600 border-0 text-xs">
+   265→              -{discountPercent}%
+   266→            </Badge>
+   267→          )}
+   268→
+   269→          {/* Flash sale badge */}
+   270→          {product.flashSaleProduct && product.flashSaleProduct.flashSale?.isActive && (
+   271→            <Badge className="absolute top-2 left-2 bg-orange-500 text-white hover:bg-orange-600 border-0 text-xs gap-1">
+   272→              <Zap className="size-3" /> Flash
+   273→            </Badge>
+   274→          )}
+   275→
+   276→          {/* Wishlist button */}
+   277→          <Button
+   278→            variant="ghost"
+   279→            size="icon"
+   280→            className="absolute top-2 right-2 size-8 rounded-full bg-white/80 dark:bg-black/50 hover:bg-white dark:hover:bg-black/70"
+   281→            onClick={handleWishlist}
+   282→            aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+   283→          >
+   284→            <Heart
+   285→              className={`size-4 ${
+   286→                wishlisted
+   287→                  ? 'fill-red-500 text-red-500'
+   288→                  : 'text-slate-600 dark:text-slate-300'
+   289→              }`}
+   290→            />
+   291→          </Button>
+   292→        </div>
+   293→
+   294→        <CardContent className="p-4 space-y-2">
+   295→          {/* Brand */}
+   296→          {product.brand && (
+   297→            <p className="text-xs text-muted-foreground truncate">
+   298→              {product.brand.name}
+   299→            </p>
+   300→          )}
+   301→
+   302→          {/* Name */}
+   303→          <h3 className="font-medium text-sm line-clamp-2 leading-tight min-h-[2.5rem]">
+   304→            {product.name}
+   305→          </h3>
+   306→
+   307→          {/* Rating */}
+   308→          <StarRating rating={product.avgRating} count={product.reviewCount} />
+   309→
+   310→          {/* Price */}
+   311→          <div className="flex items-baseline gap-2">
+   312→            <span
+   313→              className={`font-semibold ${
+   314→                product.flashSaleProduct && product.flashSaleProduct.flashSale?.isActive ? 'text-red-600 dark:text-red-400' : ''
+   315→              }`}
+   316→            >
+   317→              {formatPrice(displayPrice)}
+   318→            </span>
+   319→            {hasDiscount && (
+   320→              <span className="text-sm text-muted-foreground line-through">
+   321→                {formatPrice(product.comparePrice!)}
+   322→              </span>
+   323→            )}
+   324→          </div>
+   325→
+   326→          {/* Add to cart */}
+   327→          <Button
+   328→            size="sm"
+   329→            className="w-full mt-1 gap-2"
+   330→            onClick={handleAddToCart}
+   331→          >
+   332→            <ShoppingCart className="size-4" />
+   333→            Add to Cart
+   334→          </Button>
+   335→        </CardContent>
+   336→      </Card>
+   337→    </motion.div>
+   338→  )
+   339→}
+   340→
+   341→// ============================================================================
+   342→// Product Card Skeleton
+   343→// ============================================================================
+   344→
+   345→function ProductCardSkeleton() {
+   346→  return (
+   347→    <Card className="overflow-hidden py-0 gap-0">
+   348→      <Skeleton className="aspect-square w-full" />
+   349→      <div className="p-4 space-y-3">
+   350→        <Skeleton className="h-3 w-16" />
+   351→        <Skeleton className="h-4 w-full" />
+   352→        <Skeleton className="h-4 w-2/3" />
+   353→        <div className="flex gap-1">
+   354→          {Array.from({ length: 5 }).map((_, i) => (
+   355→            <Skeleton key={i} className="size-3.5 rounded-full" />
+   356→          ))}
+   357→        </div>
+   358→        <div className="flex items-baseline gap-2">
+   359→          <Skeleton className="h-5 w-20" />
+   360→          <Skeleton className="h-4 w-16" />
+   361→        </div>
+   362→        <Skeleton className="h-8 w-full" />
+   363→      </div>
+   364→    </Card>
+   365→  )
+   366→}
+   367→
+   368→// ============================================================================
+   369→// Countdown Timer Hook
+   370→// ============================================================================
+   371→
+   372→function useCountdown(targetDate: Date) {
+   373→  const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 })
+   374→
+   375→  useEffect(() => {
+   376→    function calculate() {
+   377→      const now = new Date().getTime()
+   378→      const distance = targetDate.getTime() - now
+   379→      if (distance <= 0) {
+   380→        setTimeLeft({ hours: 0, minutes: 0, seconds: 0 })
+   381→        return
+   382→      }
+   383→      setTimeLeft({
+   384→        hours: Math.floor(distance / (1000 * 60 * 60)),
+   385→        minutes: Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60)),
+   386→        seconds: Math.floor((distance % (1000 * 60)) / 1000),
+   387→      })
+   388→    }
+   389→    calculate()
+   390→    const interval = setInterval(calculate, 1000)
+   391→    return () => clearInterval(interval)
+   392→  }, [targetDate])
+   393→
+   394→  return timeLeft
+   395→}
+   396→
+   397→// ============================================================================
+   398→// Main HomePage Component
+   399→// ============================================================================
+   400→
+   401→export default function HomePage() {
+   402→  const navigate = useRouterStore((s) => s.navigate)
+   403→  const [carouselApi, setCarouselApi] = useState<CarouselApi>()
+   404→  const [currentSlide, setCurrentSlide] = useState(0)
+   405→  const [email, setEmail] = useState('')
+   406→  const [subscribed, setSubscribed] = useState(false)
+   407→
+   408→  // Flash sale countdown: ends at midnight today + 8 hours
+   409→  const flashSaleEnd = useMemo(() => {
+   410→    const now = new Date()
+   411→    const end = new Date(now)
+   412→    end.setHours(20, 0, 0, 0)
+   413→    if (end.getTime() <= now.getTime()) {
+   414→      end.setDate(end.getDate() + 1)
+   415→    }
+   416→    return end
+   417→  }, [])
+   418→  const countdown = useCountdown(flashSaleEnd)
+   419→
+   420→  // Carousel autoplay
+   421→  useEffect(() => {
+   422→    if (!carouselApi) return
+   423→    const interval = setInterval(() => {
+   424→      carouselApi.scrollNext()
+   425→    }, 5000)
+   426→    return () => clearInterval(interval)
+   427→  }, [carouselApi])
+   428→
+   429→  // Track current slide
+   430→  useEffect(() => {
+   431→    if (!carouselApi) return
+   432→    const onSelect = () => {
+   433→      setCurrentSlide(carouselApi.selectedScrollSnap())
+   434→    }
+   435→    carouselApi.on('select', onSelect)
+   436→    return () => {
+   437→      carouselApi.off('select', onSelect)
+   438→    }
+   439→  }, [carouselApi])
+   440→
+   441→  // ---- Data Fetching ----
+   442→
+   443→  const { data: featuredData, isLoading: featuredLoading } = useQuery({
+   444→    queryKey: ['products', 'featured', { isFeatured: true, limit: 4 }],
+   445→    queryFn: async () => {
+   446→      const res = await api.get<PaginatedResponse<ProductListItem>>('/products', {
+   447→        isFeatured: true,
+   448→        limit: 4,
+   449→      })
+   450→      return res.success ? res.data : null
+   451→    },
+   452→  })
+   453→
+   454→  const { data: flashSaleData, isLoading: bestSellerLoading } = useQuery({
+   455→    queryKey: ['products', 'flash-sale'],
+   456→    queryFn: async () => {
+   457→      const res = await api.get<PaginatedResponse<ProductListItem>>('/products', {
+   458→        limit: 20,
+   459→      })
+   460→      return res.success ? res.data : null
+   461→    },
+   462→  })
+   463→
+   464→  const { data: categories, isLoading: categoriesLoading } = useQuery({
+   465→    queryKey: ['categories'],
+   466→    queryFn: async () => {
+   467→      const res = await api.get<CategoryDisplay[]>('/categories')
+   468→      return res.success ? res.data : null
+   469→    },
+   470→  })
+   471→
+   472→  const { data: brands, isLoading: brandsLoading } = useQuery({
+   473→    queryKey: ['brands'],
+   474→    queryFn: async () => {
+   475→      const res = await api.get<BrandDisplay[]>('/brands')
+   476→      return res.success ? res.data : null
+   477→    },
+   478→  })
+   479→
+   480→  // Filter flash sale items from all products
+   481→  const flashSaleProducts = useMemo(() => {
+   482→    if (!flashSaleData?.items) return []
+   483→    return flashSaleData.items.filter((p) => p.flashSaleProduct && p.flashSaleProduct.flashSale?.isActive)
+   484→  }, [flashSaleData])
+   485→
+   486→  // Take up to 8 categories for the grid
+   487→  const displayCategories = useMemo(() => {
+   488→    if (!categories) return []
+   489→    return categories.slice(0, 8)
+   490→  }, [categories])
+   491→
+   492→  // ---- Handlers ----
+   493→
+   494→  const handleSubscribe = useCallback(() => {
+   495→    if (email.trim() && email.includes('@')) {
+   496→      setSubscribed(true)
+   497→      setEmail('')
+   498→      setTimeout(() => setSubscribed(false), 3000)
+   499→    }
+   500→  }, [email])
+   501→
+   502→  // ========================================================================
+   503→  // RENDER
+   504→  // ========================================================================
+   505→
+   506→  return (
+   507→    <div className="flex flex-col gap-12 pb-12">
+   508→      {/* ================================================================== */}
+   509→      {/* SECTION 1: Hero Banner Carousel                                    */}
+   510→      {/* ================================================================== */}
+   511→      <section className="w-full">
+   512→        <Carousel
+   513→          setApi={setCarouselApi}
+   514→          opts={{ loop: true }}
+   515→          className="w-full"
+   516→        >
+   517→          <CarouselContent>
+   518→            {heroSlides.map((slide, idx) => (
+   519→              <CarouselItem key={idx}>
+   520→                <div
+   521→                  className={`relative bg-gradient-to-r ${slide.gradient} flex items-center justify-center overflow-hidden`}
+   522→                >
+   523→                  {/* Decorative circles */}
+   524→                  <div className="absolute -top-20 -right-20 size-80 rounded-full bg-white/10" />
+   525→                  <div className="absolute -bottom-16 -left-16 size-64 rounded-full bg-white/10" />
+   526→                  <div className="absolute top-1/2 right-1/4 size-40 rounded-full bg-white/5" />
+   527→
+   528→                  <div className="relative z-10 flex flex-col items-center justify-center text-center px-6 py-16 sm:py-24 max-w-3xl mx-auto">
+   529→                    <motion.h1
+   530→                      initial={{ opacity: 0, y: 20 }}
+   531→                      animate={{ opacity: 1, y: 0 }}
+   532→                      transition={{ duration: 0.6, delay: 0.2 }}
+   533→                      className={`text-3xl sm:text-4xl md:text-5xl font-bold ${slide.accent} mb-4`}
+   534→                    >
+   535→                      {slide.title}
+   536→                    </motion.h1>
+   537→                    <motion.p
+   538→                      initial={{ opacity: 0, y: 16 }}
+   539→                      animate={{ opacity: 1, y: 0 }}
+   540→                      transition={{ duration: 0.5, delay: 0.35 }}
+   541→                      className={`text-base sm:text-lg ${slide.accent} opacity-90 mb-8 max-w-lg`}
+   542→                    >
+   543→                      {slide.subtitle}
+   544→                    </motion.p>
+   545→                    <motion.div
+   546→                      initial={{ opacity: 0, y: 12 }}
+   547→                      animate={{ opacity: 1, y: 0 }}
+   548→                      transition={{ duration: 0.4, delay: 0.5 }}
+   549→                    >
+   550→                      <Button
+   551→                        size="lg"
+   552→                        className="bg-white text-slate-900 hover:bg-white/90 font-semibold gap-2 shadow-lg"
+   553→                        onClick={() => navigate(slide.route)}
+   554→                      >
+   555→                        {slide.cta}
+   556→                        <ArrowRight className="size-4" />
+   557→                      </Button>
+   558→                    </motion.div>
+   559→                  </div>
+   560→                </div>
+   561→              </CarouselItem>
+   562→            ))}
+   563→          </CarouselContent>
+   564→
+   565→          {/* Navigation arrows */}
+   566→          <CarouselPrevious className="left-4 top-1/2 -translate-y-1/2 bg-white/20 border-0 text-white hover:bg-white/30 hover:text-white size-10" />
+   567→          <CarouselNext className="right-4 top-1/2 -translate-y-1/2 bg-white/20 border-0 text-white hover:bg-white/30 hover:text-white size-10" />
+   568→
+   569→          {/* Dots indicator */}
+   570→          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-20">
+   571→            {heroSlides.map((_, idx) => (
+   572→              <button
+   573→                key={idx}
+   574→                className={`h-2 rounded-full transition-all duration-300 ${
+   575→                  idx === currentSlide
+   576→                    ? 'w-6 bg-white'
+   577→                    : 'w-2 bg-white/50'
+   578→                }`}
+   579→                onClick={() => carouselApi?.scrollTo(idx)}
+   580→                aria-label={`Go to slide ${idx + 1}`}
+   581→              />
+   582→            ))}
+   583→          </div>
+   584→        </Carousel>
+   585→      </section>
+   586→
+   587→      {/* ================================================================== */}
+   588→      {/* SECTION 2: Flash Sale Countdown                                    */}
+   589→      {/* ================================================================== */}
+   590→      <section className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full">
+   591→        <motion.div
+   592→          initial="hidden"
+   593→          whileInView="visible"
+   594→          viewport={{ once: true, margin: '-50px' }}
+   595→          variants={fadeInUp}
+   596→        >
+   597→          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+   598→            <div className="flex items-center gap-3">
+   599→              <div className="flex items-center gap-2 bg-red-500 text-white px-4 py-2 rounded-lg">
+   600→                <Zap className="size-5" />
+   601→                <span className="font-bold text-lg">Flash Sale</span>
+   602→              </div>
+   603→              <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+   604→                <Timer className="size-4" />
+   605→                <span>Ends in</span>
+   606→              </div>
+   607→              <div className="flex items-center gap-1">
+   608→                {[
+   609→                  { value: countdown.hours, label: 'h' },
+   610→                  { value: countdown.minutes, label: 'm' },
+   611→                  { value: countdown.seconds, label: 's' },
+   612→                ].map((unit, i) => (
+   613→                  <div key={i} className="flex items-center gap-1">
+   614→                    <span className="bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-mono font-bold text-lg px-2 py-1 rounded min-w-[2.5rem] text-center">
+   615→                      {String(unit.value).padStart(2, '0')}
+   616→                    </span>
+   617→                    <span className="text-sm font-medium text-muted-foreground">
+   618→                      {unit.label}
+   619→                    </span>
+   620→                  </div>
+   621→                ))}
+   622→              </div>
+   623→            </div>
+   624→            <Button
+   625→              variant="ghost"
+   626→              className="gap-1 text-sm"
+   627→              onClick={() => navigate('products')}
+   628→            >
+   629→              View All <ChevronRight className="size-4" />
+   630→            </Button>
+   631→          </div>
+   632→
+   633→          {/* Flash sale products */}
+   634→          {bestSellerLoading ? (
+   635→            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+   636→              {Array.from({ length: 4 }).map((_, i) => (
+   637→                <ProductCardSkeleton key={i} />
+   638→              ))}
+   639→            </div>
+   640→          ) : flashSaleProducts.length > 0 ? (
+   641→            <motion.div
+   642→              className="grid grid-cols-2 md:grid-cols-4 gap-4"
+   643→              variants={staggerContainer}
+   644→              initial="hidden"
+   645→              whileInView="visible"
+   646→              viewport={{ once: true, margin: '-50px' }}
+   647→            >
+   648→              {flashSaleProducts.slice(0, 4).map((product) => (
+   649→                <ProductCard key={product.id} product={product} />
+   650→              ))}
+   651→            </motion.div>
+   652→          ) : (
+   653→            <div className="rounded-xl border border-dashed p-8 text-center">
+   654→              <Zap className="size-10 text-muted-foreground/40 mx-auto mb-3" />
+   655→              <p className="text-muted-foreground">
+   656→                No flash sale items available right now. Check back soon!
+   657→              </p>
+   658→            </div>
+   659→          )}
+   660→        </motion.div>
+   661→      </section>
+   662→
+   663→      {/* ================================================================== */}
+   664→      {/* SECTION 3: Category Grid                                           */}
+   665→      {/* ================================================================== */}
+   666→      <section className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full">
+   667→        <motion.div
+   668→          initial="hidden"
+   669→          whileInView="visible"
+   670→          viewport={{ once: true, margin: '-50px' }}
+   671→          variants={fadeInUp}
+   672→        >
+   673→          <div className="flex items-center justify-between mb-6">
+   674→            <h2 className="text-2xl font-bold">Shop by Category</h2>
+   675→            <Button
+   676→              variant="ghost"
+   677→              className="gap-1 text-sm"
+   678→              onClick={() => navigate('products')}
+   679→            >
+   680→              View All <ChevronRight className="size-4" />
+   681→            </Button>
+   682→          </div>
+   683→
+   684→          {categoriesLoading ? (
+   685→            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+   686→              {Array.from({ length: 8 }).map((_, i) => (
+   687→                <Card key={i} className="p-4">
+   688→                  <div className="flex flex-col items-center gap-3">
+   689→                    <Skeleton className="size-12 rounded-full" />
+   690→                    <Skeleton className="h-4 w-20" />
+   691→                    <Skeleton className="h-3 w-14" />
+   692→                  </div>
+   693→                </Card>
+   694→              ))}
+   695→            </div>
+   696→          ) : (
+   697→            <motion.div
+   698→              className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"
+   699→              variants={staggerContainer}
+   700→              initial="hidden"
+   701→              whileInView="visible"
+   702→              viewport={{ once: true, margin: '-50px' }}
+   703→            >
+   704→              {displayCategories.map((cat) => {
+   705→                const style = getCategoryStyle(cat.slug)
+   706→                const IconComp = style.icon
+   707→                return (
+   708→                  <motion.div key={cat.id} variants={staggerItem}>
+   709→                    <Card
+   710→                      className="cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5 py-0"
+   711→                      onClick={() =>
+   712→                        navigate('products', { categoryId: cat.id })
+   713→                      }
+   714→                    >
+   715→                      <CardContent className="flex flex-col items-center gap-3 p-5">
+   716→                        <div
+   717→                          className={`size-14 rounded-full ${style.bg} flex items-center justify-center`}
+   718→                        >
+   719→                          <IconComp className={`size-7 ${style.color}`} />
+   720→                        </div>
+   721→                        <span className="font-medium text-sm text-center">
+   722→                          {cat.name}
+   723→                        </span>
+   724→                        <span className="text-xs text-muted-foreground">
+   725→                          {cat._count?.products ?? 0} Products
+   726→                        </span>
+   727→                      </CardContent>
+   728→                    </Card>
+   729→                  </motion.div>
+   730→                )
+   731→              })}
+   732→            </motion.div>
+   733→          )}
+   734→        </motion.div>
+   735→      </section>
+   736→
+   737→      {/* ================================================================== */}
+   738→      {/* SECTION 4: Featured Products                                       */}
+   739→      {/* ================================================================== */}
+   740→      <section className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full">
+   741→        <motion.div
+   742→          initial="hidden"
+   743→          whileInView="visible"
+   744→          viewport={{ once: true, margin: '-50px' }}
+   745→          variants={fadeInUp}
+   746→        >
+   747→          <div className="flex items-center justify-between mb-6">
+   748→            <h2 className="text-2xl font-bold">Featured Products</h2>
+   749→            <Button
+   750→              variant="ghost"
+   751→              className="gap-1 text-sm"
+   752→              onClick={() => navigate('products')}
+   753→            >
+   754→              View All <ChevronRight className="size-4" />
+   755→            </Button>
+   756→          </div>
+   757→
+   758→          {featuredLoading ? (
+   759→            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+   760→              {Array.from({ length: 4 }).map((_, i) => (
+   761→                <ProductCardSkeleton key={i} />
+   762→              ))}
+   763→            </div>
+   764→          ) : featuredData?.items && featuredData.items.length > 0 ? (
+   765→            <motion.div
+   766→              className="grid grid-cols-2 md:grid-cols-4 gap-4"
+   767→              variants={staggerContainer}
+   768→              initial="hidden"
+   769→              whileInView="visible"
+   770→              viewport={{ once: true, margin: '-50px' }}
+   771→            >
+   772→              {featuredData.items.map((product) => (
+   773→                <ProductCard key={product.id} product={product} />
+   774→              ))}
+   775→            </motion.div>
+   776→          ) : (
+   777→            <div className="rounded-xl border border-dashed p-8 text-center">
+   778→              <Package className="size-10 text-muted-foreground/40 mx-auto mb-3" />
+   779→              <p className="text-muted-foreground">
+   780→                No featured products at the moment.
+   781→              </p>
+   782→            </div>
+   783→          )}
+   784→        </motion.div>
+   785→      </section>
+   786→
+   787→      {/* ================================================================== */}
+   788→      {/* SECTION 5: Brand Showcase                                          */}
+   789→      {/* ================================================================== */}
+   790→      <section className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full">
+   791→        <motion.div
+   792→          initial="hidden"
+   793→          whileInView="visible"
+   794→          viewport={{ once: true, margin: '-50px' }}
+   795→          variants={fadeInUp}
+   796→        >
+   797→          <h2 className="text-2xl font-bold mb-6">Popular Brands</h2>
+   798→
+   799→          {brandsLoading ? (
+   800→            <div className="flex gap-4 overflow-x-auto pb-2">
+   801→              {Array.from({ length: 6 }).map((_, i) => (
+   802→                <Skeleton
+   803→                  key={i}
+   804→                  className="size-24 rounded-xl shrink-0"
+   805→                />
+   806→              ))}
+   807→            </div>
+   808→          ) : brands && brands.length > 0 ? (
+   809→            <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-none">
+   810→              {brands.map((brand) => (
+   811→                <Card
+   812→                  key={brand.id}
+   813→                  className="shrink-0 cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5 py-0"
+   814→                  onClick={() =>
+   815→                    navigate('products', { brandId: brand.id })
+   816→                  }
+   817→                >
+   818→                  <CardContent className="flex flex-col items-center justify-center p-5 min-w-[120px] h-[100px]">
+   819→                    {brand.logo ? (
+   820→                      <img
+   821→                        src={brand.logo}
+   822→                        alt={brand.name}
+   823→                        className="h-10 w-auto object-contain mb-1"
+   824→                      />
+   825→                    ) : (
+   826→                      <div className="size-10 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 dark:from-slate-600 dark:to-slate-700 flex items-center justify-center mb-1">
+   827→                        <span className="font-bold text-sm text-slate-500 dark:text-slate-300">
+   828→                          {brand.name.charAt(0).toUpperCase()}
+   829→                        </span>
+   830→                      </div>
+   831→                    )}
+   832→                    <span className="text-xs font-medium text-muted-foreground text-center truncate max-w-[100px]">
+   833→                      {brand.name}
+   834→                    </span>
+   835→                  </CardContent>
+   836→                </Card>
+   837→              ))}
+   838→            </div>
+   839→          ) : (
+   840→            <div className="rounded-xl border border-dashed p-6 text-center">
+   841→              <p className="text-muted-foreground text-sm">No brands available</p>
+   842→            </div>
+   843→          )}
+   844→        </motion.div>
+   845→      </section>
+   846→
+   847→      {/* ================================================================== */}
+   848→      {/* SECTION 6: Newsletter CTA                                          */}
+   849→      {/* ================================================================== */}
+   850→      <section className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full">
+   851→        <motion.div
+   852→          initial="hidden"
+   853→          whileInView="visible"
+   854→          viewport={{ once: true, margin: '-50px' }}
+   855→          variants={fadeIn}
+   856→        >
+   857→          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-500 to-emerald-500 px-6 py-12 sm:px-12 sm:py-16">
+   858→            {/* Decorative shapes */}
+   859→            <div className="absolute -top-10 -right-10 size-40 rounded-full bg-white/10" />
+   860→            <div className="absolute -bottom-8 -left-8 size-32 rounded-full bg-white/10" />
+   861→            <div className="absolute top-1/3 right-1/3 size-20 rounded-full bg-white/5" />
+   862→
+   863→            <div className="relative z-10 flex flex-col items-center text-center max-w-xl mx-auto">
+   864→              <Mail className="size-10 text-white/80 mb-4" />
+   865→              <h2 className="text-2xl sm:text-3xl font-bold text-white mb-3">
+   866→                Stay in the Loop
+   867→              </h2>
+   868→              <p className="text-white/80 mb-8 text-sm sm:text-base">
+   869→                Subscribe to our newsletter for exclusive deals, new arrivals, and insider-only discounts.
+   870→              </p>
+   871→              {subscribed ? (
+   872→                <motion.div
+   873→                  initial={{ scale: 0.9, opacity: 0 }}
+   874→                  animate={{ scale: 1, opacity: 1 }}
+   875→                  className="bg-white/20 backdrop-blur-sm rounded-lg px-6 py-3 text-white font-medium"
+   876→                >
+   877→                  Thanks for subscribing!
+   878→                </motion.div>
+   879→              ) : (
+   880→                <div className="flex w-full max-w-md gap-2">
+   881→                  <Input
+   882→                    type="email"
+   883→                    placeholder="Enter your email address"
+   884→                    value={email}
+   885→                    onChange={(e) => setEmail(e.target.value)}
+   886→                    onKeyDown={(e) => e.key === 'Enter' && handleSubscribe()}
+   887→                    className="bg-white/20 border-white/30 text-white placeholder:text-white/60 focus-visible:border-white focus-visible:ring-white/30 h-11"
+   888→                  />
+   889→                  <Button
+   890→                    onClick={handleSubscribe}
+   891→                    className="bg-white text-emerald-700 hover:bg-white/90 font-semibold shrink-0 h-11 px-6"
+   892→                  >
+   893→                    Subscribe
+   894→                  </Button>
+   895→                </div>
+   896→              )}
+   897→            </div>
+   898→          </div>
+   899→        </motion.div>
+   900→      </section>
+   901→
+   902→      {/* ================================================================== */}
+   903→      {/* SECTION 7: Stats Bar                                               */}
+   904→      {/* ================================================================== */}
+   905→      <section className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full">
+   906→        <motion.div
+   907→          initial="hidden"
+   908→          whileInView="visible"
+   909→          viewport={{ once: true, margin: '-50px' }}
+   910→          variants={staggerContainer}
+   911→          className="grid grid-cols-2 md:grid-cols-4 gap-4"
+   912→        >
+   913→          {stats.map((stat) => {
+   914→            const IconComp = stat.icon
+   915→            return (
+   916→              <motion.div key={stat.label} variants={staggerItem}>
+   917→                <Card className="py-0">
+   918→                  <CardContent className="flex flex-col items-center gap-2 p-5">
+   919→                    <IconComp className={`size-8 ${stat.color}`} />
+   920→                    <span className="font-bold text-lg">{stat.label}</span>
+   921→                  </CardContent>
+   922→                </Card>
+   923→              </motion.div>
+   924→            )
+   925→          })}
+   926→        </motion.div>
+   927→      </section>
+   928→    </div>
+   929→  )
+   930→}
+   931→
