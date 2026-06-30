@@ -1,3 +1,19 @@
+/**
+ * @file admin-settings.tsx
+ * @description Store settings page for the ShopForge admin panel. Provides
+ * a form for managing global store configuration including store name,
+ * tax rate, free shipping minimum, and currency selection. Settings are
+ * fetched on mount and saved via the admin API.
+ *
+ * @keyfeatures
+ * - Store name configuration
+ * - Tax rate percentage input with validation (0-100)
+ * - Free shipping minimum order amount
+ * - Currency selection dropdown (USD, EUR, GBP, CAD, AUD, JPY, CNY)
+ * - Save settings with loading spinner feedback
+ * - Loading skeletons while settings are being fetched
+ * - Toast notifications for save success/failure
+ */
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -28,6 +44,16 @@ import {
 // AdminSettingsContent
 // ============================================================================
 
+/**
+ * @interface StoreSettings
+ * @description Represents the store's configuration settings. Uses an index
+ * signature to allow flexible key-value access for dynamic form handling.
+ *
+ * @property {string} [storeName] - The display name of the store
+ * @property {number} [taxRate] - Tax rate percentage (0-100)
+ * @property {number} [freeShippingMin] - Minimum order amount for free shipping
+ * @property {string} [currency] - Store currency code (e.g. "USD", "EUR")
+ */
 interface StoreSettings {
   storeName?: string
   taxRate?: number
@@ -36,11 +62,31 @@ interface StoreSettings {
   [key: string]: unknown
 }
 
+/**
+ * @function AdminSettingsContent
+ * @description Store settings content for the admin panel. Fetches the current
+ * store settings on mount and provides a form for updating the store name,
+ * tax rate, free shipping minimum, and currency. Saves changes via the
+ * admin API with toast feedback.
+ *
+ * @state
+ * - `settings` - StoreSettings object fetched from /api/admin?action=settings
+ * - `loading` - boolean for initial data fetch state
+ * - `saving` - boolean for the save settings API call loading state
+ *
+ * @remarks
+ * - Settings are fetched once on component mount
+ * - Form inputs update local state immediately; changes are persisted only on save
+ * - Tax rate is validated to be between 0 and 100 via HTML min/max attributes
+ * - Free shipping minimum of 0 means free shipping for all orders
+ * - Currency selection supports 7 major world currencies
+ */
 export function AdminSettingsContent() {
   const [settings, setSettings] = useState<StoreSettings>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
+  // Fetch current store settings on component mount
   useEffect(() => {
     async function fetchSettings() {
       try {
@@ -57,6 +103,11 @@ export function AdminSettingsContent() {
     fetchSettings()
   }, [])
 
+  /**
+   * Handles saving the updated store settings. Sends a PUT request to the
+   * admin API with the current settings values. Shows a success toast on
+   * completion or an error toast on failure.
+   */
   async function handleSave() {
     setSaving(true)
     try {
@@ -82,6 +133,7 @@ export function AdminSettingsContent() {
     }
   }
 
+  // Loading state: skeleton placeholders matching the settings form layout
   if (loading) {
     return (
       <>
@@ -103,6 +155,7 @@ export function AdminSettingsContent() {
             <CardDescription>Manage your store configuration and preferences.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
+            {/* Store Name - display name for the e-commerce store */}
             <div className="grid gap-2">
               <Label htmlFor="store-name">Store Name</Label>
               <Input
@@ -115,6 +168,7 @@ export function AdminSettingsContent() {
               />
             </div>
 
+            {/* Tax Rate - percentage applied to all taxable orders */}
             <div className="grid gap-2">
               <Label htmlFor="tax-rate">Tax Rate (%)</Label>
               <Input
@@ -134,6 +188,7 @@ export function AdminSettingsContent() {
               />
             </div>
 
+            {/* Free Shipping Minimum - orders above this amount get free shipping */}
             <div className="grid gap-2">
               <Label htmlFor="free-shipping">Free Shipping Minimum ($)</Label>
               <Input
@@ -155,6 +210,7 @@ export function AdminSettingsContent() {
               </p>
             </div>
 
+            {/* Currency - determines the store's display currency */}
             <div className="grid gap-2">
               <Label htmlFor="currency">Currency</Label>
               <Select
@@ -180,6 +236,7 @@ export function AdminSettingsContent() {
 
             <Separator />
 
+            {/* Save button - aligned to the right with minimum width */}
             <div className="flex justify-end">
               <Button onClick={handleSave} disabled={saving} className="min-w-[120px]">
                 {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

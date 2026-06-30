@@ -1,3 +1,20 @@
+/**
+ * @file admin-coupons.tsx
+ * @description Coupon management page for the ShopForge admin panel. Provides
+ * a table of all discount coupons with actions for toggling activation,
+ * deleting coupons, and copying coupon codes. Includes a dialog form for
+ * creating new coupons with support for percentage and fixed discount types.
+ *
+ * @keyfeatures
+ * - Coupon list table with code, type, value, min purchase, usage, and status
+ * - Copy coupon code to clipboard with toast feedback
+ * - Activate/deactivate coupon toggle via dropdown menu
+ * - Delete coupon via dropdown menu
+ * - "Create Coupon" dialog form with comprehensive fields
+ * - Support for PERCENTAGE and FIXED discount types
+ * - Configurable min purchase, max discount, usage limit, and expiry date
+ * - Loading skeletons and empty state handling
+ */
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
@@ -55,13 +72,33 @@ import { formatCurrency, StatusBadge } from './admin-page'
 // AdminCouponsContent
 // ============================================================================
 
+/**
+ * @function AdminCouponsContent
+ * @description Coupon management content for the admin panel. Displays a
+ * table of all coupons with actions for activation toggle, deletion, and
+ * code copying. Provides a dialog form for creating new coupons.
+ *
+ * @state
+ * - `coupons` - array of CouponDisplay fetched from /api/admin?action=coupons
+ * - `loading` - boolean for initial data fetch state
+ * - `showCreateDialog` - boolean controlling the create coupon dialog visibility
+ * - `saving` - boolean for the create coupon API call loading state
+ * - Form fields: formCode, formType, formValue, formMinPurchase, formMaxDiscount,
+ *   formUsageLimit, formExpiresAt - individual state for each form input
+ *
+ * @remarks
+ * - Coupon codes are automatically uppercased on input
+ * - PERCENTAGE type shows value as "X%", FIXED type shows value as currency
+ * - Usage column displays usedCount/usageLimit or "∞" for unlimited
+ * - New coupons default to active status with perUserLimit of 1
+ */
 export function AdminCouponsContent() {
   const [coupons, setCoupons] = useState<CouponDisplay[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  // Form state
+  // Create coupon form state - individual fields for the create dialog
   const [formCode, setFormCode] = useState('')
   const [formType, setFormType] = useState('PERCENTAGE')
   const [formValue, setFormValue] = useState('')
@@ -70,6 +107,10 @@ export function AdminCouponsContent() {
   const [formUsageLimit, setFormUsageLimit] = useState('')
   const [formExpiresAt, setFormExpiresAt] = useState('')
 
+  /**
+   * Fetches all coupons from the admin API. Called on mount and after
+   * mutations (create, toggle, delete) to refresh the coupon list.
+   */
   const fetchCoupons = useCallback(async () => {
     try {
       const res = await fetch('/api/admin?action=coupons')
@@ -83,10 +124,17 @@ export function AdminCouponsContent() {
     }
   }, [])
 
+  // Fetch coupons on component mount
   useEffect(() => {
     fetchCoupons()
   }, [fetchCoupons])
 
+  /**
+   * Handles the create coupon form submission. Sends a POST request to create
+   * a new coupon with the form field values. The code is uppercased, and
+   * optional numeric fields are converted to appropriate types or null.
+   * Resets the form and closes the dialog on success.
+   */
   async function handleCreateCoupon() {
     setSaving(true)
     try {
@@ -102,8 +150,8 @@ export function AdminCouponsContent() {
             minPurchase: parseFloat(formMinPurchase) || 0,
             maxDiscount: formMaxDiscount ? parseFloat(formMaxDiscount) : null,
             usageLimit: formUsageLimit ? parseInt(formUsageLimit) : null,
-            perUserLimit: 1,
-            isActive: true,
+            perUserLimit: 1, // Default per-user limit
+            isActive: true, // New coupons are active by default
             startsAt: new Date().toISOString(),
             expiresAt: formExpiresAt ? new Date(formExpiresAt).toISOString() : null,
           },
@@ -121,6 +169,12 @@ export function AdminCouponsContent() {
     }
   }
 
+  /**
+   * Deletes a coupon by ID. Sends a DELETE request to the admin API
+   * and refreshes the coupon list on success.
+   *
+   * @param {string} id - The ID of the coupon to delete
+   */
   async function handleDeleteCoupon(id: string) {
     try {
       const res = await fetch(`/api/admin?action=delete-coupon&id=${id}`, { method: 'DELETE' })
@@ -132,6 +186,12 @@ export function AdminCouponsContent() {
     }
   }
 
+  /**
+   * Toggles a coupon's active/inactive status. Sends a PUT request to
+   * the admin API and refreshes the coupon list on success.
+   *
+   * @param {CouponDisplay} coupon - The coupon to activate or deactivate
+   */
   async function handleToggleCoupon(coupon: CouponDisplay) {
     try {
       const res = await fetch('/api/admin', {
@@ -151,6 +211,9 @@ export function AdminCouponsContent() {
     }
   }
 
+  /**
+   * Resets all create coupon form fields to their default values.
+   */
   function resetCouponForm() {
     setFormCode('')
     setFormType('PERCENTAGE')
@@ -163,6 +226,7 @@ export function AdminCouponsContent() {
 
   return (
     <>
+      {/* Header bar with coupon count and Create Coupon button */}
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-lg font-semibold text-gray-700">
           {coupons.length} coupon{coupons.length !== 1 ? 's' : ''}
@@ -173,9 +237,11 @@ export function AdminCouponsContent() {
         </Button>
       </div>
 
+      {/* Coupons Table */}
       <Card>
         <CardContent className="p-0">
           {loading ? (
+            /* Loading state: skeleton placeholders */
             <div className="p-6 space-y-4">
               {Array.from({ length: 3 }).map((_, i) => (
                 <Skeleton key={i} className="h-12 w-full" />
@@ -188,7 +254,9 @@ export function AdminCouponsContent() {
                   <TableHead>Code</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Value</TableHead>
+                  {/* Min Purchase column - hidden on small screens */}
                   <TableHead className="hidden md:table-cell">Min Purchase</TableHead>
+                  {/* Usage column - hidden on extra-small screens */}
                   <TableHead className="hidden sm:table-cell">Usage</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -196,6 +264,7 @@ export function AdminCouponsContent() {
               </TableHeader>
               <TableBody>
                 {coupons.length === 0 ? (
+                  /* Empty state: no coupons exist */
                   <TableRow>
                     <TableCell colSpan={7} className="text-center text-gray-500 py-8">
                       No coupons found
@@ -204,11 +273,13 @@ export function AdminCouponsContent() {
                 ) : (
                   coupons.map((coupon) => (
                     <TableRow key={coupon.id}>
+                      {/* Coupon code with copy-to-clipboard button */}
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <code className="rounded bg-gray-100 px-2 py-1 text-sm font-mono font-semibold">
                             {coupon.code}
                           </code>
+                          {/* Copy code button - writes to clipboard and shows toast */}
                           <Button
                             variant="ghost"
                                             size="icon"
@@ -222,21 +293,27 @@ export function AdminCouponsContent() {
                                           </Button>
                         </div>
                       </TableCell>
+                      {/* Discount type label */}
                       <TableCell className="text-sm">
                         {coupon.type === 'PERCENTAGE' ? 'Percentage' : 'Fixed'}
                       </TableCell>
+                      {/* Value display: percentage or currency based on type */}
                       <TableCell className="text-sm font-medium">
                         {coupon.type === 'PERCENTAGE' ? `${coupon.value}%` : formatCurrency(coupon.value)}
                       </TableCell>
+                      {/* Minimum purchase amount */}
                       <TableCell className="hidden md:table-cell text-sm text-gray-500">
                         {formatCurrency(coupon.minPurchase)}
                       </TableCell>
+                      {/* Usage: used count / limit or infinity symbol for unlimited */}
                       <TableCell className="hidden sm:table-cell text-sm text-gray-500">
                         {coupon.usedCount}/{coupon.usageLimit || '∞'}
                       </TableCell>
+                      {/* Active/Inactive status badge */}
                       <TableCell>
                         <StatusBadge status={coupon.isActive ? 'ACTIVE' : 'INACTIVE'} />
                       </TableCell>
+                      {/* Action dropdown menu */}
                       <TableCell className="text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -245,6 +322,7 @@ export function AdminCouponsContent() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            {/* Toggle active/inactive status */}
                             <DropdownMenuItem onClick={() => handleToggleCoupon(coupon)}>
                               {coupon.isActive ? (
                                 <XCircle className="mr-2 h-4 w-4" />
@@ -254,6 +332,7 @@ export function AdminCouponsContent() {
                               {coupon.isActive ? 'Deactivate' : 'Activate'}
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
+                            {/* Delete coupon */}
                             <DropdownMenuItem variant="destructive" onClick={() => handleDeleteCoupon(coupon.id)}>
                               <Trash2 className="mr-2 h-4 w-4" />
                               Delete
@@ -270,7 +349,7 @@ export function AdminCouponsContent() {
         </CardContent>
       </Card>
 
-      {/* Create Coupon Dialog */}
+      {/* Create Coupon Dialog - form with all coupon configuration fields */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
         <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -278,6 +357,7 @@ export function AdminCouponsContent() {
             <DialogDescription>Create a new discount coupon for your store.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
+            {/* Coupon code field - auto-uppercased on input */}
             <div className="grid gap-2">
               <Label htmlFor="coupon-code">Coupon Code</Label>
               <Input
@@ -288,7 +368,9 @@ export function AdminCouponsContent() {
                 className="uppercase"
               />
             </div>
+            {/* Type and Value - side by side */}
             <div className="grid grid-cols-2 gap-4">
+              {/* Discount type selector */}
               <div className="grid gap-2">
                 <Label htmlFor="coupon-type">Type</Label>
                 <Select value={formType} onValueChange={setFormType}>
@@ -301,6 +383,7 @@ export function AdminCouponsContent() {
                   </SelectContent>
                 </Select>
               </div>
+              {/* Discount value (percentage number or fixed amount) */}
               <div className="grid gap-2">
                 <Label htmlFor="coupon-value">Value</Label>
                 <Input
@@ -313,6 +396,7 @@ export function AdminCouponsContent() {
                 />
               </div>
             </div>
+            {/* Min Purchase and Max Discount - side by side */}
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="coupon-min">Min Purchase</Label>
@@ -337,6 +421,7 @@ export function AdminCouponsContent() {
                 />
               </div>
             </div>
+            {/* Usage Limit and Expiry Date - side by side */}
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="coupon-usage">Usage Limit</Label>
@@ -363,6 +448,7 @@ export function AdminCouponsContent() {
             <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
               Cancel
             </Button>
+            {/* Submit button - disabled while saving or when required fields are empty */}
             <Button onClick={handleCreateCoupon} disabled={saving || !formCode || !formValue}>
               {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Create Coupon

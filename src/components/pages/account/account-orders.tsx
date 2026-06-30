@@ -1,3 +1,21 @@
+/**
+ * @file account-orders.tsx
+ * @description Order history list and order detail pages for the ShopForge
+ * e-commerce account section. Provides two exported components:
+ * - AccountOrdersPage: Filterable list of all user orders with status tabs
+ * - AccountOrderDetailPage: Detailed single-order view with timeline, items,
+ *   addresses, payment info, and order summary breakdown
+ *
+ * @keyfeatures
+ * - Status filter tabs (ALL, PENDING, PROCESSING, SHIPPED, DELIVERED, CANCELLED)
+ * - Order cards with image thumbnails, status badges, and quick view button
+ * - Order detail page with visual status timeline progression
+ * - Shipping/billing address display parsed from JSON
+ * - Payment method and status information
+ * - Order total breakdown (subtotal, shipping, tax, discount, total)
+ * - Loading skeletons and empty/error states
+ * - Back navigation via router store goBack()
+ */
 'use client'
 
 import { useState } from 'react'
@@ -46,12 +64,31 @@ import {
 // AccountOrdersPage
 // ============================================================================
 
+/**
+ * @function AccountOrdersPage
+ * @description Displays a filterable list of the authenticated user's orders.
+ * Users can filter orders by status using tab buttons, view order image
+ * thumbnails, and navigate to the order detail page.
+ *
+ * @state
+ * - `isAuthenticated` - from useAuthGuard, ensures user is logged in
+ * - `user` - from useAuthStore, the current user object
+ * - `navigate` - from useRouterStore, programmatic navigation function
+ * - `statusFilter` - local state for the active status filter tab (default: 'ALL')
+ * - `orders` - fetched via TanStack Query from /orders API endpoint
+ *
+ * @remarks
+ * - Returns null if user is not authenticated or user object is unavailable
+ * - Filter tabs include ALL plus all order statuses
+ * - Each order card shows up to 4 product image thumbnails with overflow indicator
+ */
 export function AccountOrdersPage() {
   const isAuthenticated = useAuthGuard()
   const user = useAuthStore((s) => s.user)
   const navigate = useRouterStore((s) => s.navigate)
   const [statusFilter, setStatusFilter] = useState('ALL')
 
+  // Fetch user's orders from the API, enabled only when user ID is available
   const { data: orders = [], isLoading } = useQuery<OrderWithItems[]>({
     queryKey: ['user-orders', user?.id],
     queryFn: async () => {
@@ -61,13 +98,16 @@ export function AccountOrdersPage() {
     enabled: !!user?.id,
   })
 
+  // Guard: don't render if not authenticated or user data not loaded
   if (!isAuthenticated || !user) return null
 
+  // Apply status filter: show all orders or filter by selected status
   const filteredOrders =
     statusFilter === 'ALL'
       ? orders
       : orders.filter((o) => o.status === statusFilter)
 
+  // Available filter tab options for order status filtering
   const filterTabs = ['ALL', 'PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED']
 
   return (
@@ -77,6 +117,7 @@ export function AccountOrdersPage() {
         animate={{ opacity: 1, y: 0 }}
         className="space-y-6"
       >
+        {/* Page Header */}
         <div>
           <h1 className="text-2xl font-bold">My Orders</h1>
           <p className="text-muted-foreground mt-1">
@@ -84,7 +125,7 @@ export function AccountOrdersPage() {
           </p>
         </div>
 
-        {/* Filter Tabs */}
+        {/* Filter Tabs - horizontally scrollable status filter buttons */}
         <div className="overflow-x-auto">
           <Tabs value={statusFilter} onValueChange={setStatusFilter}>
             <TabsList className="w-full justify-start">
@@ -97,14 +138,16 @@ export function AccountOrdersPage() {
           </Tabs>
         </div>
 
-        {/* Orders List */}
+        {/* Orders List - renders loading, empty, or order cards */}
         {isLoading ? (
+          /* Loading state: skeleton placeholders */
           <div className="space-y-4">
             {Array.from({ length: 3 }).map((_, i) => (
               <Skeleton key={i} className="h-132 w-full" />
             ))}
           </div>
         ) : filteredOrders.length === 0 ? (
+          /* Empty state: contextual message based on active filter */
           <Card>
             <CardContent className="py-12 text-center">
               <Package className="size-12 text-muted-foreground mx-auto mb-3" />
@@ -118,11 +161,12 @@ export function AccountOrdersPage() {
             </CardContent>
           </Card>
         ) : (
+          /* Order cards: each card shows order header, item thumbnails, total, and view button */
           <div className="space-y-4">
             {filteredOrders.map((order) => (
               <Card key={order.id} className="overflow-hidden">
                 <CardContent className="p-0">
-                  {/* Order Header */}
+                  {/* Order Header - order number, status badge, date, and item count */}
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-4 border-b bg-muted/30">
                     <div className="flex items-center gap-3">
                       <span className="font-semibold text-sm">
@@ -144,9 +188,10 @@ export function AccountOrdersPage() {
                     </div>
                   </div>
 
-                  {/* Order Items Preview */}
+                  {/* Order Items Preview - up to 4 product image thumbnails with overflow count */}
                   <div className="p-4">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      {/* Stacked image thumbnails showing product variety */}
                       <div className="flex -space-x-2">
                         {order.items?.slice(0, 4).map((item, idx) => (
                           <div
@@ -164,6 +209,7 @@ export function AccountOrdersPage() {
                             )}
                           </div>
                         ))}
+                        {/* Overflow indicator when more than 4 items */}
                         {order.items && order.items.length > 4 && (
                           <div className="w-10 h-10 rounded-lg border-2 border-background bg-muted flex items-center justify-center text-xs font-medium text-muted-foreground">
                             +{order.items.length - 4}
@@ -171,9 +217,11 @@ export function AccountOrdersPage() {
                         )}
                       </div>
                       <div className="flex items-center gap-4">
+                        {/* Order total amount */}
                         <span className="text-lg font-bold">
                           {formatCurrency(order.totalAmount)}
                         </span>
+                        {/* View Details button navigates to order detail page */}
                         <Button
                           size="sm"
                           variant="outline"
@@ -202,6 +250,26 @@ export function AccountOrdersPage() {
 // AccountOrderDetailPage
 // ============================================================================
 
+/**
+ * @function AccountOrderDetailPage
+ * @description Renders the full detail view for a single order. Displays the
+ * order status timeline, item list with images and pricing, shipping and
+ * billing addresses, payment information, and an order summary breakdown.
+ *
+ * @state
+ * - `isAuthenticated` - from useAuthGuard, ensures user is logged in
+ * - `params` - from useRouterStore, contains `orderId` for the current order
+ * - `navigate` - from useRouterStore, programmatic navigation function
+ * - `goBack` - from useRouterStore, navigates to the previous page
+ * - `order` - fetched via TanStack Query from /orders API endpoint using orderId
+ *
+ * @remarks
+ * - Shows loading skeletons while the order data is being fetched
+ * - Displays an error state card if the order is not found or API fails
+ * - Shipping and billing addresses are parsed from JSON strings when necessary
+ * - The status timeline renders icons for each step (Clock, CreditCard, Package, Truck, CheckCircle)
+ * - Cancelled orders get a special red styling on the current timeline step
+ */
 export function AccountOrderDetailPage() {
   const isAuthenticated = useAuthGuard()
   const params = useRouterStore((s) => s.params)
@@ -209,6 +277,7 @@ export function AccountOrderDetailPage() {
   const goBack = useRouterStore((s) => s.goBack)
   const orderId = params.orderId
 
+  // Fetch the specific order details from the API using orderId from route params
   const { data: order, isLoading, error } = useQuery({
     queryKey: ['order-detail', orderId],
     queryFn: async (): Promise<OrderWithItems | null> => {
@@ -218,8 +287,10 @@ export function AccountOrderDetailPage() {
     enabled: !!orderId,
   })
 
+  // Guard: don't render if not authenticated
   if (!isAuthenticated) return null
 
+  // Loading state: skeleton placeholders mimicking the detail layout
   if (isLoading) {
     return (
       <AccountLayout>
@@ -233,6 +304,7 @@ export function AccountOrderDetailPage() {
     )
   }
 
+  // Error/not-found state: display a message and back-to-orders button
   if (error || !order) {
     return (
       <AccountLayout>
@@ -252,17 +324,21 @@ export function AccountOrderDetailPage() {
     )
   }
 
+  // Parse shipping address from JSON string if necessary
   const shippingAddr = order.shippingAddress
     ? typeof order.shippingAddress === 'string'
       ? JSON.parse(order.shippingAddress)
       : order.shippingAddress
     : null
+
+  // Parse billing address from JSON string if necessary
   const billingAddr = order.billingAddress
     ? typeof order.billingAddress === 'string'
       ? JSON.parse(order.billingAddress)
       : order.billingAddress
     : null
 
+  // Determine the current position in the order status timeline
   const timelineSteps = ORDER_STATUS_STEPS
   const currentStepIndex = timelineSteps.indexOf(order.status)
 
@@ -273,7 +349,7 @@ export function AccountOrderDetailPage() {
         animate={{ opacity: 1, y: 0 }}
         className="space-y-6"
       >
-        {/* Header */}
+        {/* Header - back button, order number, date, and status badge */}
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={goBack}>
             <ArrowLeft className="size-5" />
@@ -284,6 +360,7 @@ export function AccountOrderDetailPage() {
               Placed on {formatDate(order.createdAt)}
             </p>
           </div>
+          {/* Status badge aligned to the right */}
           <Badge
             variant="secondary"
             className={`ml-auto ${STATUS_COLORS[order.status] || ''}`}
@@ -292,7 +369,7 @@ export function AccountOrderDetailPage() {
           </Badge>
         </div>
 
-        {/* Status Timeline */}
+        {/* Status Timeline - visual progression through order lifecycle steps */}
         <Card>
           <CardHeader className="pb-4">
             <CardTitle className="text-lg">Order Status</CardTitle>
@@ -303,6 +380,8 @@ export function AccountOrderDetailPage() {
                 const isCompleted = idx <= currentStepIndex
                 const isCurrent = idx === currentStepIndex
                 const isCancelled = order.status === 'CANCELLED'
+
+                // Select the appropriate icon for each status step
                 const stepIcon = (() => {
                   switch (step) {
                     case 'PENDING':
@@ -326,7 +405,7 @@ export function AccountOrderDetailPage() {
                     key={step}
                     className="flex flex-col items-center flex-1 relative"
                   >
-                    {/* Connector line */}
+                    {/* Connector line between steps */}
                     {idx < timelineSteps.length - 1 && (
                       <div
                         className={`absolute top-4 left-1/2 w-full h-0.5 ${
@@ -338,6 +417,7 @@ export function AccountOrderDetailPage() {
                         }`}
                       />
                     )}
+                    {/* Step circle with icon - green for completed, red for cancelled current, muted for future */}
                     <div
                       className={`relative z-10 w-8 h-8 rounded-full flex items-center justify-center border-2 ${
                         isCancelled && isCurrent
@@ -349,6 +429,7 @@ export function AccountOrderDetailPage() {
                     >
                       <StepIcon className="size-3.5" />
                     </div>
+                    {/* Step label text */}
                     <span
                       className={`text-xs mt-2 text-center ${
                         isCompleted
@@ -362,6 +443,7 @@ export function AccountOrderDetailPage() {
                 )
               })}
             </div>
+            {/* Tracking number display - shown only when a tracking number exists */}
             {order.trackingNumber && (
               <div className="mt-4 p-3 bg-muted rounded-lg flex items-center gap-2">
                 <Truck className="size-4 text-muted-foreground" />
@@ -376,7 +458,7 @@ export function AccountOrderDetailPage() {
           </CardContent>
         </Card>
 
-        {/* Order Items */}
+        {/* Order Items - list of products with images, names, variants, quantities, and totals */}
         <Card>
           <CardHeader className="pb-4">
             <CardTitle className="text-lg">Items</CardTitle>
@@ -387,6 +469,7 @@ export function AccountOrderDetailPage() {
                 key={item.id}
                 className="flex items-center gap-4 p-3 rounded-lg border"
               >
+                {/* Product image thumbnail */}
                 <div className="w-16 h-16 rounded-lg bg-muted flex items-center justify-center overflow-hidden shrink-0">
                   {item.image ? (
                     <img
@@ -407,6 +490,7 @@ export function AccountOrderDetailPage() {
                     <ShoppingBag className="size-6 text-muted-foreground" />
                   )}
                 </div>
+                {/* Item details: name, variant, quantity x price */}
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-sm truncate">
                     {item.productName}
@@ -420,6 +504,7 @@ export function AccountOrderDetailPage() {
                     Qty: {item.quantity} &times; {formatCurrency(item.price)}
                   </p>
                 </div>
+                {/* Item total */}
                 <span className="font-semibold text-sm shrink-0">
                   {formatCurrency(item.total)}
                 </span>
@@ -428,7 +513,7 @@ export function AccountOrderDetailPage() {
           </CardContent>
         </Card>
 
-        {/* Addresses & Payment */}
+        {/* Addresses & Payment - side-by-side shipping and billing address cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {/* Shipping Address */}
           {shippingAddr && (
@@ -479,7 +564,7 @@ export function AccountOrderDetailPage() {
           )}
         </div>
 
-        {/* Payment Info */}
+        {/* Payment Info - method and payment status */}
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm flex items-center gap-2">
@@ -507,16 +592,18 @@ export function AccountOrderDetailPage() {
           </CardContent>
         </Card>
 
-        {/* Order Total Breakdown */}
+        {/* Order Total Breakdown - subtotal, shipping, tax, discount, and final total */}
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm">Order Summary</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
+            {/* Subtotal */}
             <div className="flex justify-between">
               <span className="text-muted-foreground">Subtotal</span>
               <span>{formatCurrency(order.subtotal)}</span>
             </div>
+            {/* Shipping cost - shows "Free" if zero */}
             <div className="flex justify-between">
               <span className="text-muted-foreground">Shipping</span>
               <span>
@@ -525,10 +612,12 @@ export function AccountOrderDetailPage() {
                   : 'Free'}
               </span>
             </div>
+            {/* Tax amount */}
             <div className="flex justify-between">
               <span className="text-muted-foreground">Tax</span>
               <span>{formatCurrency(order.taxAmount)}</span>
             </div>
+            {/* Discount - shown only when a discount was applied */}
             {order.discountAmount > 0 && (
               <div className="flex justify-between text-green-600 dark:text-green-400">
                 <span>Discount</span>
@@ -536,6 +625,7 @@ export function AccountOrderDetailPage() {
               </div>
             )}
             <Separator />
+            {/* Final total */}
             <div className="flex justify-between font-bold text-base">
               <span>Total</span>
               <span>{formatCurrency(order.totalAmount)}</span>

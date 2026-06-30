@@ -1,0 +1,1235 @@
+     1→     1→'use client'
+     2→     2→
+     3→     3→import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
+     4→     4→import { useForm } from 'react-hook-form'
+     5→     5→import { z } from 'zod/v4'
+     6→     6→import { zodResolver } from '@hookform/resolvers/zod'
+     7→     7→import { motion, AnimatePresence } from 'framer-motion'
+     8→     8→import {
+     9→     9→  Truck,
+    10→    10→  CreditCard,
+    11→    11→  CheckCircle2,
+    12→    12→  ChevronRight,
+    13→    13→  ChevronDown,
+    14→    14→  Loader2,
+    15→    15→  ShoppingBag,
+    16→    16→  Package,
+    17→    17→  ArrowLeft,
+    18→    18→  Lock,
+    19→    19→} from 'lucide-react'
+    20→    20→import { useRouterStore } from '@/stores/router-store'
+    21→    21→import { useCartStore } from '@/stores/cart-store'
+    22→    22→import { useAuthStore } from '@/stores/auth-store'
+    23→    23→import { Button } from '@/components/ui/button'
+    24→    24→import {
+    25→    25→  Card,
+    26→    26→  CardContent,
+    27→    27→  CardHeader,
+    28→    28→  CardTitle,
+    29→    29→} from '@/components/ui/card'
+    30→    30→import { Input } from '@/components/ui/input'
+    31→    31→import { Separator } from '@/components/ui/separator'
+    32→    32→import { Badge } from '@/components/ui/badge'
+    33→    33→import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+    34→    34→import { Label } from '@/components/ui/label'
+    35→    35→import {
+    36→    36→  Form,
+    37→    37→  FormControl,
+    38→    38→  FormField,
+    39→    39→  FormItem,
+    40→    40→  FormLabel,
+    41→    41→  FormMessage,
+    42→    42→} from '@/components/ui/form'
+    43→    43→import {
+    44→    44→  Collapsible,
+    45→    45→  CollapsibleContent,
+    46→    46→  CollapsibleTrigger,
+    47→    47→} from '@/components/ui/collapsible'
+    48→    48→
+    49→    49→// ============================================================================
+    50→    50→// Types
+    51→    51→// ============================================================================
+    52→    52→
+    53→    53→interface CouponResult {
+    54→    54→  id: string
+    55→    55→  code: string
+    56→    56→  type: string
+    57→    57→  value: number
+    58→    58→  discount: number
+    59→    59→}
+    60→    60→
+    61→    61→type CheckoutStep = 'shipping' | 'payment' | 'confirmation'
+    62→    62→
+    63→    63→// ============================================================================
+    64→    64→// Helpers
+    65→    65→// ============================================================================
+    66→    66→
+    67→    67→function formatPrice(price: number): string {
+    68→    68→  return new Intl.NumberFormat('en-US', {
+    69→    69→    style: 'currency',
+    70→    70→    currency: 'USD',
+    71→    71→  }).format(price)
+    72→    72→}
+    73→    73→
+    74→    74→const PRODUCT_GRADIENTS = [
+    75→    75→  'from-rose-400 to-pink-500',
+    76→    76→  'from-violet-400 to-purple-500',
+    77→    77→  'from-cyan-400 to-blue-500',
+    78→    78→  'from-emerald-400 to-teal-500',
+    79→    79→  'from-amber-400 to-orange-500',
+    80→    80→  'from-fuchsia-400 to-pink-500',
+    81→    81→  'from-sky-400 to-indigo-400',
+    82→    82→  'from-lime-400 to-green-500',
+    83→    83→]
+    84→    84→
+    85→    85→function getGradient(productId: string): string {
+    86→    86→  let hash = 0
+    87→    87→  for (let i = 0; i < productId.length; i++) {
+    88→    88→    hash = productId.charCodeAt(i) + ((hash << 5) - hash)
+    89→    89→  }
+    90→    90→  return PRODUCT_GRADIENTS[Math.abs(hash) % PRODUCT_GRADIENTS.length]
+    91→    91→}
+    92→    92→
+    93→    93→// ============================================================================
+    94→    94→// Zod Schema
+    95→    95→// ============================================================================
+    96→    96→
+    97→    97→const shippingSchema = z.object({
+    98→    98→  firstName: z.string().min(1, 'First name is required'),
+    99→    99→  lastName: z.string().min(1, 'Last name is required'),
+   100→   100→  street1: z.string().min(1, 'Street address is required'),
+   101→   101→  street2: z.string().optional(),
+   102→   102→  city: z.string().min(1, 'City is required'),
+   103→   103→  state: z.string().min(1, 'State is required'),
+   104→   104→  postalCode: z
+   105→   105→    .string()
+   106→   106→    .min(1, 'Postal code is required')
+   107→   107→    .regex(/^[0-9]{5}(-[0-9]{4})?$/, 'Enter a valid postal code'),
+   108→   108→  country: z.string().min(1, 'Country is required'),
+   109→   109→  phone: z
+   110→   110→    .string()
+   111→   111→    .min(1, 'Phone number is required')
+   112→   112→    .regex(/^[+]?[0-9\s\-()]{7,20}$/, 'Enter a valid phone number'),
+   113→   113→})
+   114→   114→
+   115→   115→type ShippingFormValues = z.infer<typeof shippingSchema>
+   116→   116→
+   117→   117→const paymentSchema = z.object({
+   118→   118→  cardNumber: z
+   119→   119→    .string()
+   120→   120→    .min(1, 'Card number is required')
+   121→   121→    .regex(/^[0-9\s]{13,19}$/, 'Enter a valid card number'),
+   122→   122→  expiry: z
+   123→   123→    .string()
+   124→   124→    .min(1, 'Expiry date is required')
+   125→   125→    .regex(/^(0[1-9]|1[0-2])\/[0-9]{2}$/, 'Use format MM/YY'),
+   126→   126→  cvc: z
+   127→   127→    .string()
+   128→   128→    .min(1, 'CVC is required')
+   129→   129→    .regex(/^[0-9]{3,4}$/, 'Enter a valid CVC'),
+   130→   130→})
+   131→   131→
+   132→   132→type PaymentFormValues = z.infer<typeof paymentSchema>
+   133→   133→
+   134→   134→// ============================================================================
+   135→   135→// Confetti Effect
+   136→   136→// ============================================================================
+   137→   137→
+   138→   138→function ConfettiEffect() {
+   139→   139→  const canvasRef = useRef<HTMLCanvasElement>(null)
+   140→   140→
+   141→   141→  useEffect(() => {
+   142→   142→    const canvas = canvasRef.current
+   143→   143→    if (!canvas) return
+   144→   144→
+   145→   145→    const ctx = canvas.getContext('2d')
+   146→   146→    if (!ctx) return
+   147→   147→
+   148→   148→    canvas.width = window.innerWidth
+   149→   149→    canvas.height = window.innerHeight
+   150→   150→
+   151→   151→    const colors = [
+   152→   152→      '#f59e0b', '#ef4444', '#10b981', '#8b5cf6',
+   153→   153→      '#ec4899', '#06b6d4', '#f97316', '#14b8a6',
+   154→   154→    ]
+   155→   155→
+   156→   156→    const particles: Array<{
+   157→   157→      x: number
+   158→   158→      y: number
+   159→   159→      vx: number
+   160→   160→      vy: number
+   161→   161→      color: string
+   162→   162→      size: number
+   163→   163→      rotation: number
+   164→   164→      rotationSpeed: number
+   165→   165→      opacity: number
+   166→   166→    }> = []
+   167→   167→
+   168→   168→    for (let i = 0; i < 120; i++) {
+   169→   169→      particles.push({
+   170→   170→        x: canvas.width / 2 + (Math.random() - 0.5) * 200,
+   171→   171→        y: canvas.height / 2,
+   172→   172→        vx: (Math.random() - 0.5) * 15,
+   173→   173→        vy: -Math.random() * 18 - 5,
+   174→   174→        color: colors[Math.floor(Math.random() * colors.length)],
+   175→   175→        size: Math.random() * 8 + 3,
+   176→   176→        rotation: Math.random() * 360,
+   177→   177→        rotationSpeed: (Math.random() - 0.5) * 10,
+   178→   178→        opacity: 1,
+   179→   179→      })
+   180→   180→    }
+   181→   181→
+   182→   182→    let animationId: number
+   183→   183→
+   184→   184→    function animate() {
+   185→   185→      if (!ctx || !canvas) return
+   186→   186→      ctx.clearRect(0, 0, canvas.width, canvas.height)
+   187→   187→
+   188→   188→      let alive = false
+   189→   189→      particles.forEach((p) => {
+   190→   190→        p.x += p.vx
+   191→   191→        p.y += p.vy
+   192→   192→        p.vy += 0.3
+   193→   193→        p.rotation += p.rotationSpeed
+   194→   194→        p.opacity -= 0.008
+   195→   195→
+   196→   196→        if (p.opacity > 0) {
+   197→   197→          alive = true
+   198→   198→          ctx.save()
+   199→   199→          ctx.translate(p.x, p.y)
+   200→   200→          ctx.rotate((p.rotation * Math.PI) / 180)
+   201→   201→          ctx.globalAlpha = p.opacity
+   202→   202→          ctx.fillStyle = p.color
+   203→   203→          ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6)
+   204→   204→          ctx.restore()
+   205→   205→        }
+   206→   206→      })
+   207→   207→
+   208→   208→      if (alive) {
+   209→   209→        animationId = requestAnimationFrame(animate)
+   210→   210→      } else {
+   211→   211→        ctx.clearRect(0, 0, canvas.width, canvas.height)
+   212→   212→      }
+   213→   213→    }
+   214→   214→
+   215→   215→    animate()
+   216→   216→
+   217→   217→    return () => {
+   218→   218→      cancelAnimationFrame(animationId)
+   219→   219→    }
+   220→   220→  }, [])
+   221→   221→
+   222→   222→  return (
+   223→   223→    <canvas
+   224→   224→      ref={canvasRef}
+   225→   225→      className="fixed inset-0 pointer-events-none z-50"
+   226→   226→      aria-hidden="true"
+   227→   227→    />
+   228→   228→  )
+   229→   229→}
+   230→   230→
+   231→   231→// ============================================================================
+   232→   232→// Stepper
+   233→   233→// ============================================================================
+   234→   234→
+   235→   235→function CheckoutStepper({ currentStep }: { currentStep: CheckoutStep }) {
+   236→   236→  const steps = [
+   237→   237→    { key: 'shipping' as const, label: 'Shipping', icon: Truck },
+   238→   238→    { key: 'payment' as const, label: 'Payment', icon: CreditCard },
+   239→   239→    { key: 'confirmation' as const, label: 'Confirmation', icon: CheckCircle2 },
+   240→   240→  ]
+   241→   241→
+   242→   242→  const currentIndex = steps.findIndex((s) => s.key === currentStep)
+   243→   243→
+   244→   244→  return (
+   245→   245→    <div className="flex items-center justify-center gap-0 w-full max-w-lg mx-auto mb-8">
+   246→   246→      {steps.map((step, index) => {
+   247→   247→        const isCompleted = index < currentIndex
+   248→   248→        const isCurrent = index === currentIndex
+   249→   249→        const Icon = step.icon
+   250→   250→
+   251→   251→        return (
+   252→   252→          <div key={step.key} className="flex items-center flex-1 last:flex-initial">
+   253→   253→            <div className="flex flex-col items-center gap-1.5">
+   254→   254→              <div
+   255→   255→                className={`h-10 w-10 rounded-full flex items-center justify-center border-2 transition-all duration-300 ${
+   256→   256→                  isCompleted
+   257→   257→                    ? 'bg-emerald-500 border-emerald-500 text-white'
+   258→   258→                    : isCurrent
+   259→   259→                      ? 'bg-primary border-primary text-primary-foreground'
+   260→   260→                      : 'bg-background border-muted-foreground/30 text-muted-foreground'
+   261→   261→                }`}
+   262→   262→              >
+   263→   263→                {isCompleted ? (
+   264→   264→                  <CheckCircle2 className="h-5 w-5" />
+   265→   265→                ) : (
+   266→   266→                  <Icon className="h-5 w-5" />
+   267→   267→                )}
+   268→   268→              </div>
+   269→   269→              <span
+   270→   270→                className={`text-xs font-medium whitespace-nowrap ${
+   271→   271→                  isCompleted
+   272→   272→                    ? 'text-emerald-600 dark:text-emerald-400'
+   273→   273→                    : isCurrent
+   274→   274→                      ? 'text-foreground'
+   275→   275→                      : 'text-muted-foreground'
+   276→   276→                }`}
+   277→   277→              >
+   278→   278→                {step.label}
+   279→   279→              </span>
+   280→   280→            </div>
+   281→   281→            {index < steps.length - 1 && (
+   282→   282→              <div
+   283→   283→                className={`flex-1 h-0.5 mx-3 mt-[-1.25rem] transition-colors duration-300 ${
+   284→   284→                  index < currentIndex
+   285→   285→                    ? 'bg-emerald-500'
+   286→   286→                    : 'bg-muted-foreground/20'
+   287→   287→                }`}
+   288→   288→              />
+   289→   289→            )}
+   290→   290→          </div>
+   291→   291→        )
+   292→   292→      })}
+   293→   293→    </div>
+   294→   294→  )
+   295→   295→}
+   296→   296→
+   297→   297→// ============================================================================
+   298→   298→// Order Summary Component
+   299→   299→// ============================================================================
+   300→   300→
+   301→   301→function CheckoutOrderSummary({
+   302→   302→  couponResult,
+   303→   303→  shippingMethod,
+   304→   304→  collapsible = false,
+   305→   305→}: {
+   306→   306→  couponResult: CouponResult | null
+   307→   307→  shippingMethod: string
+   308→   308→  collapsible?: boolean
+   309→   309→}) {
+   310→   310→  const items = useCartStore((s) => s.items)
+   311→   311→  const [isOpen, setIsOpen] = useState(false)
+   312→   312→
+   313→   313→  const subtotal = useMemo(() => {
+   314→   314→    return items.reduce((sum, item) => sum + item.price * item.quantity, 0)
+   315→   315→  }, [items])
+   316→   316→
+   317→   317→  const discount = couponResult?.discount ?? 0
+   318→   318→  const shipping =
+   319→   319→    shippingMethod === 'express'
+   320→   320→      ? 9.99
+   321→   321→      : subtotal >= 50
+   322→   322→        ? 0
+   323→   323→        : 9.99
+   324→   324→  const afterDiscount = subtotal - discount
+   325→   325→  const tax = Math.round(afterDiscount * 0.08 * 100) / 100
+   326→   326→  const total = Math.round((afterDiscount + shipping + tax) * 100) / 100
+   327→   327→
+   328→   328→  const content = (
+   329→   329→    <div className="space-y-3">
+   330→   330→      {/* Items */}
+   331→   331→      <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+   332→   332→        {items.map((item) => (
+   333→   333→          <div
+   334→   334→            key={`${item.productId}-${item.variantId || 'default'}`}
+   335→   335→            className="flex items-center gap-3"
+   336→   336→          >
+   337→   337→            <div
+   338→   338→              className={`h-10 w-10 rounded-md bg-gradient-to-br ${getGradient(item.productId)} flex items-center justify-center shrink-0`}
+   339→   339→            >
+   340→   340→              <ShoppingBag className="h-4 w-4 text-white/70" />
+   341→   341→            </div>
+   342→   342→            <div className="flex-1 min-w-0">
+   343→   343→              <p className="text-sm font-medium truncate">{item.name}</p>
+   344→   344→              {item.variantName && (
+   345→   345→                <p className="text-xs text-muted-foreground">{item.variantName}</p>
+   346→   346→              )}
+   347→   347→            </div>
+   348→   348→            <div className="text-right shrink-0">
+   349→   349→              <p className="text-sm font-medium">
+   350→   350→                {formatPrice(item.price * item.quantity)}
+   351→   351→              </p>
+   352→   352→              {item.quantity > 1 && (
+   353→   353→                <p className="text-xs text-muted-foreground">x{item.quantity}</p>
+   354→   354→              )}
+   355→   355→            </div>
+   356→   356→          </div>
+   357→   357→        ))}
+   358→   358→      </div>
+   359→   359→
+   360→   360→      <Separator />
+   361→   361→
+   362→   362→      <div className="space-y-2 text-sm">
+   363→   363→        <div className="flex justify-between">
+   364→   364→          <span className="text-muted-foreground">Subtotal</span>
+   365→   365→          <span>{formatPrice(subtotal)}</span>
+   366→   366→        </div>
+   367→   367→        {discount > 0 && (
+   368→   368→          <div className="flex justify-between">
+   369→   369→            <span className="text-muted-foreground">Discount</span>
+   370→   370→            <span className="text-emerald-600 dark:text-emerald-400">
+   371→   371→              -{formatPrice(discount)}
+   372→   372→            </span>
+   373→   373→          </div>
+   374→   374→        )}
+   375→   375→        <div className="flex justify-between">
+   376→   376→          <span className="text-muted-foreground">Shipping</span>
+   377→   377→          {shipping === 0 ? (
+   378→   378→            <Badge
+   379→   379→              variant="secondary"
+   380→   380→              className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 font-normal"
+   381→   381→            >
+   382→   382→              Free
+   383→   383→            </Badge>
+   384→   384→          ) : (
+   385→   385→            <span>{formatPrice(shipping)}</span>
+   386→   386→          )}
+   387→   387→        </div>
+   388→   388→        <div className="flex justify-between">
+   389→   389→          <span className="text-muted-foreground">Tax (8%)</span>
+   390→   390→          <span>{formatPrice(tax)}</span>
+   391→   391→        </div>
+   392→   392→      </div>
+   393→   393→
+   394→   394→      <Separator />
+   395→   395→
+   396→   396→      <div className="flex justify-between items-baseline">
+   397→   397→        <span className="font-semibold">Total</span>
+   398→   398→        <span className="text-lg font-bold">{formatPrice(total)}</span>
+   399→   399→      </div>
+   400→   400→    </div>
+   401→   401→  )
+   402→   402→
+   403→   403→  if (collapsible) {
+   404→   404→    return (
+   405→   405→      <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+   406→   406→        <CollapsibleTrigger className="flex items-center justify-between w-full py-3">
+   407→   407→          <span className="font-semibold text-sm">
+   408→   408→            Order Summary ({items.reduce((s, i) => s + i.quantity, 0)} items)
+   409→   409→          </span>
+   410→   410→          <ChevronDown
+   411→   411→            className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+   412→   412→          />
+   413→   413→        </CollapsibleTrigger>
+   414→   414→        <CollapsibleContent>{content}</CollapsibleContent>
+   415→   415→      </Collapsible>
+   416→   416→    )
+   417→   417→  }
+   418→   418→
+   419→   419→  return <div className="space-y-4">{content}</div>
+   420→   420→}
+   421→   421→
+   422→   422→// ============================================================================
+   423→   423→// Step 1: Shipping
+   424→   424→// ============================================================================
+   425→   425→
+   426→   426→function ShippingStep({
+   427→   427→  onSubmit,
+   428→   428→  shippingMethod,
+   429→   429→  onShippingMethodChange,
+   430→   430→  couponResult,
+   431→   431→}: {
+   432→   432→  onSubmit: (data: ShippingFormValues) => void
+   433→   433→  shippingMethod: string
+   434→   434→  onShippingMethodChange: (method: string) => void
+   435→   435→  couponResult: CouponResult | null
+   436→   436→}) {
+   437→   437→  const navigate = useRouterStore((s) => s.navigate)
+   438→   438→  const subtotal = useCartStore((s) => s.getSubtotal())
+   439→   439→
+   440→   440→  const form = useForm<ShippingFormValues>({
+   441→   441→    resolver: zodResolver(shippingSchema),
+   442→   442→    defaultValues: {
+   443→   443→      firstName: '',
+   444→   444→      lastName: '',
+   445→   445→      street1: '',
+   446→   446→      street2: '',
+   447→   447→      city: '',
+   448→   448→      state: '',
+   449→   449→      postalCode: '',
+   450→   450→      country: 'US',
+   451→   451→      phone: '',
+   452→   452→    },
+   453→   453→  })
+   454→   454→
+   455→   455→  const standardShippingFree = subtotal >= 50
+   456→   456→
+   457→   457→  return (
+   458→   458→    <motion.div
+   459→   459→      initial={{ opacity: 0, x: 50 }}
+   460→   460→      animate={{ opacity: 1, x: 0 }}
+   461→   461→      exit={{ opacity: 0, x: -50 }}
+   462→   462→      transition={{ duration: 0.3 }}
+   463→   463→    >
+   464→   464→      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+   465→   465→        {/* Form */}
+   466→   466→        <div className="lg:col-span-2">
+   467→   467→          <Card>
+   468→   468→            <CardHeader>
+   469→   469→              <CardTitle className="flex items-center gap-2">
+   470→   470→                <Truck className="h-5 w-5" />
+   471→   471→                Shipping Address
+   472→   472→              </CardTitle>
+   473→   473→            </CardHeader>
+   474→   474→            <CardContent>
+   475→   475→              <Form {...form}>
+   476→   476→                <form
+   477→   477→                  onSubmit={form.handleSubmit(onSubmit)}
+   478→   478→                  className="space-y-4"
+   479→   479→                >
+   480→   480→                  {/* Name row */}
+   481→   481→                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   482→   482→                    <FormField
+   483→   483→                      control={form.control}
+   484→   484→                      name="firstName"
+   485→   485→                      render={({ field }) => (
+   486→   486→                        <FormItem>
+   487→   487→                          <FormLabel>First Name</FormLabel>
+   488→   488→                          <FormControl>
+   489→   489→                            <Input placeholder="John" {...field} />
+   490→   490→                          </FormControl>
+   491→   491→                          <FormMessage />
+   492→   492→                        </FormItem>
+   493→   493→                      )}
+   494→   494→                    />
+   495→   495→                    <FormField
+   496→   496→                      control={form.control}
+   497→   497→                      name="lastName"
+   498→   498→                      render={({ field }) => (
+   499→   499→                        <FormItem>
+   500→   500→                          <FormLabel>Last Name</FormLabel>
+   501→   501→                          <FormControl>
+   502→   502→                            <Input placeholder="Doe" {...field} />
+   503→   503→                          </FormControl>
+   504→   504→                          <FormMessage />
+   505→   505→                        </FormItem>
+   506→   506→                      )}
+   507→   507→                    />
+   508→   508→                  </div>
+   509→   509→
+   510→   510→                  {/* Street */}
+   511→   511→                  <FormField
+   512→   512→                    control={form.control}
+   513→   513→                    name="street1"
+   514→   514→                    render={({ field }) => (
+   515→   515→                      <FormItem>
+   516→   516→                        <FormLabel>Street Address</FormLabel>
+   517→   517→                        <FormControl>
+   518→   518→                          <Input placeholder="123 Main St" {...field} />
+   519→   519→                        </FormControl>
+   520→   520→                        <FormMessage />
+   521→   521→                      </FormItem>
+   522→   522→                    )}
+   523→   523→                  />
+   524→   524→                  <FormField
+   525→   525→                    control={form.control}
+   526→   526→                    name="street2"
+   527→   527→                    render={({ field }) => (
+   528→   528→                      <FormItem>
+   529→   529→                        <FormLabel>
+   530→   530→                          Apartment, suite, etc.{' '}
+   531→   531→                          <span className="text-muted-foreground">(optional)</span>
+   532→   532→                        </FormLabel>
+   533→   533→                        <FormControl>
+   534→   534→                          <Input placeholder="Apt 4B" {...field} />
+   535→   535→                        </FormControl>
+   536→   536→                        <FormMessage />
+   537→   537→                      </FormItem>
+   538→   538→                    )}
+   539→   539→                  />
+   540→   540→
+   541→   541→                  {/* City / State / Zip */}
+   542→   542→                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+   543→   543→                    <FormField
+   544→   544→                      control={form.control}
+   545→   545→                      name="city"
+   546→   546→                      render={({ field }) => (
+   547→   547→                        <FormItem>
+   548→   548→                          <FormLabel>City</FormLabel>
+   549→   549→                          <FormControl>
+   550→   550→                            <Input placeholder="New York" {...field} />
+   551→   551→                          </FormControl>
+   552→   552→                          <FormMessage />
+   553→   553→                        </FormItem>
+   554→   554→                      )}
+   555→   555→                    />
+   556→   556→                    <FormField
+   557→   557→                      control={form.control}
+   558→   558→                      name="state"
+   559→   559→                      render={({ field }) => (
+   560→   560→                        <FormItem>
+   561→   561→                          <FormLabel>State</FormLabel>
+   562→   562→                          <FormControl>
+   563→   563→                            <Input placeholder="NY" {...field} />
+   564→   564→                          </FormControl>
+   565→   565→                          <FormMessage />
+   566→   566→                        </FormItem>
+   567→   567→                      )}
+   568→   568→                    />
+   569→   569→                    <FormField
+   570→   570→                      control={form.control}
+   571→   571→                      name="postalCode"
+   572→   572→                      render={({ field }) => (
+   573→   573→                        <FormItem className="col-span-2 sm:col-span-1">
+   574→   574→                          <FormLabel>Postal Code</FormLabel>
+   575→   575→                          <FormControl>
+   576→   576→                            <Input placeholder="10001" {...field} />
+   577→   577→                          </FormControl>
+   578→   578→                          <FormMessage />
+   579→   579→                        </FormItem>
+   580→   580→                      )}
+   581→   581→                    />
+   582→   582→                  </div>
+   583→   583→
+   584→   584→                  {/* Country / Phone */}
+   585→   585→                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   586→   586→                    <FormField
+   587→   587→                      control={form.control}
+   588→   588→                      name="country"
+   589→   589→                      render={({ field }) => (
+   590→   590→                        <FormItem>
+   591→   591→                          <FormLabel>Country</FormLabel>
+   592→   592→                          <FormControl>
+   593→   593→                            <Input placeholder="US" {...field} />
+   594→   594→                          </FormControl>
+   595→   595→                          <FormMessage />
+   596→   596→                        </FormItem>
+   597→   597→                      )}
+   598→   598→                    />
+   599→   599→                    <FormField
+   600→   600→                      control={form.control}
+   601→   601→                      name="phone"
+   602→   602→                      render={({ field }) => (
+   603→   603→                        <FormItem>
+   604→   604→                          <FormLabel>Phone Number</FormLabel>
+   605→   605→                          <FormControl>
+   606→   606→                            <Input placeholder="(555) 123-4567" {...field} />
+   607→   607→                          </FormControl>
+   608→   608→                          <FormMessage />
+   609→   609→                        </FormItem>
+   610→   610→                      )}
+   611→   611→                    />
+   612→   612→                  </div>
+   613→   613→
+   614→   614→                  <Separator className="my-6" />
+   615→   615→
+   616→   616→                  {/* Shipping Method */}
+   617→   617→                  <div>
+   618→   618→                    <h3 className="font-semibold mb-3">Shipping Method</h3>
+   619→   619→                    <RadioGroup
+   620→   620→                      value={shippingMethod}
+   621→   621→                      onValueChange={onShippingMethodChange}
+   622→   622→                      className="space-y-3"
+   623→   623→                    >
+   624→   624→                      <Label
+   625→   625→                        htmlFor="standard"
+   626→   626→                        className={`flex items-center justify-between rounded-lg border p-4 cursor-pointer transition-colors ${
+   627→   627→                          shippingMethod === 'standard'
+   628→   628→                            ? 'border-primary bg-primary/5'
+   629→   629→                            : 'border-border hover:border-primary/50'
+   630→   630→                        }`}
+   631→   631→                      >
+   632→   632→                        <div className="flex items-center gap-3">
+   633→   633→                          <RadioGroupItem value="standard" id="standard" />
+   634→   634→                          <div>
+   635→   635→                            <p className="font-medium text-sm">Standard Shipping</p>
+   636→   636→                            <p className="text-xs text-muted-foreground">
+   637→   637→                              5-7 business days
+   638→   638→                            </p>
+   639→   639→                          </div>
+   640→   640→                        </div>
+   641→   641→                        <span className="text-sm font-medium">
+   642→   642→                          {standardShippingFree ? (
+   643→   643→                            <Badge
+   644→   644→                              variant="secondary"
+   645→   645→                              className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400"
+   646→   646→                            >
+   647→   647→                              Free
+   648→   648→                            </Badge>
+   649→   649→                          ) : (
+   650→   650→                            '$9.99'
+   651→   651→                          )}
+   652→   652→                        </span>
+   653→   653→                      </Label>
+   654→   654→
+   655→   655→                      <Label
+   656→   656→                        htmlFor="express"
+   657→   657→                        className={`flex items-center justify-between rounded-lg border p-4 cursor-pointer transition-colors ${
+   658→   658→                          shippingMethod === 'express'
+   659→   659→                            ? 'border-primary bg-primary/5'
+   660→   660→                            : 'border-border hover:border-primary/50'
+   661→   661→                        }`}
+   662→   662→                      >
+   663→   663→                        <div className="flex items-center gap-3">
+   664→   664→                          <RadioGroupItem value="express" id="express" />
+   665→   665→                          <div>
+   666→   666→                            <p className="font-medium text-sm">Express Shipping</p>
+   667→   667→                            <p className="text-xs text-muted-foreground">
+   668→   668→                              2-3 business days
+   669→   669→                            </p>
+   670→   670→                          </div>
+   671→   671→                        </div>
+   672→   672→                        <span className="text-sm font-medium">$9.99</span>
+   673→   673→                      </Label>
+   674→   674→                    </RadioGroup>
+   675→   675→                  </div>
+   676→   676→
+   677→   677→                  {/* Actions */}
+   678→   678→                  <div className="flex items-center justify-between pt-4">
+   679→   679→                    <Button
+   680→   680→                      type="button"
+   681→   681→                      variant="ghost"
+   682→   682→                      className="gap-2"
+   683→   683→                      onClick={() => navigate('cart')}
+   684→   684→                    >
+   685→   685→                      <ArrowLeft className="h-4 w-4" />
+   686→   686→                      Back to Cart
+   687→   687→                    </Button>
+   688→   688→                    <Button type="submit" className="gap-2">
+   689→   689→                      Continue to Payment
+   690→   690→                      <ChevronRight className="h-4 w-4" />
+   691→   691→                    </Button>
+   692→   692→                  </div>
+   693→   693→                </form>
+   694→   694→              </Form>
+   695→   695→            </CardContent>
+   696→   696→          </Card>
+   697→   697→        </div>
+   698→   698→
+   699→   699→        {/* Sidebar summary */}
+   700→   700→        <div className="lg:col-span-1">
+   701→   701→          <Card className="sticky top-24">
+   702→   702→            <CardHeader className="pb-3">
+   703→   703→              <CardTitle className="text-lg">Order Summary</CardTitle>
+   704→   704→            </CardHeader>
+   705→   705→            <CardContent>
+   706→   706→              <CheckoutOrderSummary
+   707→   707→                couponResult={couponResult}
+   708→   708→                shippingMethod={shippingMethod}
+   709→   709→              />
+   710→   710→            </CardContent>
+   711→   711→          </Card>
+   712→   712→        </div>
+   713→   713→      </div>
+   714→   714→    </motion.div>
+   715→   715→  )
+   716→   716→}
+   717→   717→
+   718→   718→// ============================================================================
+   719→   719→// Step 2: Payment
+   720→   720→// ============================================================================
+   721→   721→
+   722→   722→function PaymentStep({
+   723→   723→  onSubmit,
+   724→   724→  onBack,
+   725→   725→  shippingMethod,
+   726→   726→  couponResult,
+   727→   727→  isSubmitting,
+   728→   728→}: {
+   729→   729→  onSubmit: (data: PaymentFormValues) => void
+   730→   730→  onBack: () => void
+   731→   731→  shippingMethod: string
+   732→   732→  couponResult: CouponResult | null
+   733→   733→  isSubmitting: boolean
+   734→   734→}) {
+   735→   735→  const form = useForm<PaymentFormValues>({
+   736→   736→    resolver: zodResolver(paymentSchema),
+   737→   737→    defaultValues: {
+   738→   738→      cardNumber: '',
+   739→   739→      expiry: '',
+   740→   740→      cvc: '',
+   741→   741→    },
+   742→   742→  })
+   743→   743→
+   744→   744→  const formatCardNumber = (value: string) => {
+   745→   745→    const digits = value.replace(/\D/g, '').slice(0, 16)
+   746→   746→    return digits.replace(/(\d{4})(?=\d)/g, '$1 ')
+   747→   747→  }
+   748→   748→
+   749→   749→  const formatExpiry = (value: string) => {
+   750→   750→    const digits = value.replace(/\D/g, '').slice(0, 4)
+   751→   751→    if (digits.length >= 3) {
+   752→   752→      return digits.slice(0, 2) + '/' + digits.slice(2)
+   753→   753→    }
+   754→   754→    return digits
+   755→   755→  }
+   756→   756→
+   757→   757→  return (
+   758→   758→    <motion.div
+   759→   759→      initial={{ opacity: 0, x: 50 }}
+   760→   760→      animate={{ opacity: 1, x: 0 }}
+   761→   761→      exit={{ opacity: 0, x: -50 }}
+   762→   762→      transition={{ duration: 0.3 }}
+   763→   763→    >
+   764→   764→      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+   765→   765→        {/* Payment Form */}
+   766→   766→        <div className="lg:col-span-2">
+   767→   767→          <Card>
+   768→   768→            <CardHeader>
+   769→   769→              <CardTitle className="flex items-center gap-2">
+   770→   770→                <CreditCard className="h-5 w-5" />
+   771→   771→                Payment Details
+   772→   772→              </CardTitle>
+   773→   773→            </CardHeader>
+   774→   774→            <CardContent>
+   775→   775→              <Form {...form}>
+   776→   776→                <form
+   777→   777→                  onSubmit={form.handleSubmit(onSubmit)}
+   778→   778→                  className="space-y-4"
+   779→   779→                >
+   780→   780→                  {/* Card Number */}
+   781→   781→                  <FormField
+   782→   782→                    control={form.control}
+   783→   783→                    name="cardNumber"
+   784→   784→                    render={({ field }) => (
+   785→   785→                      <FormItem>
+   786→   786→                        <FormLabel>Card Number</FormLabel>
+   787→   787→                        <FormControl>
+   788→   788→                          <Input
+   789→   789→                            placeholder="4242 4242 4242 4242"
+   790→   790→                            {...field}
+   791→   791→                            onChange={(e) => {
+   792→   792→                              field.onChange(formatCardNumber(e.target.value))
+   793→   793→                            }}
+   794→   794→                            maxLength={19}
+   795→   795→                          />
+   796→   796→                        </FormControl>
+   797→   797→                        <FormMessage />
+   798→   798→                      </FormItem>
+   799→   799→                    )}
+   800→   800→                  />
+   801→   801→
+   802→   802→                  {/* Expiry & CVC */}
+   803→   803→                  <div className="grid grid-cols-2 gap-4">
+   804→   804→                    <FormField
+   805→   805→                      control={form.control}
+   806→   806→                      name="expiry"
+   807→   807→                      render={({ field }) => (
+   808→   808→                        <FormItem>
+   809→   809→                          <FormLabel>Expiry Date</FormLabel>
+   810→   810→                          <FormControl>
+   811→   811→                            <Input
+   812→   812→                              placeholder="MM/YY"
+   813→   813→                              {...field}
+   814→   814→                              onChange={(e) => {
+   815→   815→                                field.onChange(formatExpiry(e.target.value))
+   816→   816→                              }}
+   817→   817→                              maxLength={5}
+   818→   818→                            />
+   819→   819→                          </FormControl>
+   820→   820→                          <FormMessage />
+   821→   821→                        </FormItem>
+   822→   822→                      )}
+   823→   823→                    />
+   824→   824→                    <FormField
+   825→   825→                      control={form.control}
+   826→   826→                      name="cvc"
+   827→   827→                      render={({ field }) => (
+   828→   828→                        <FormItem>
+   829→   829→                          <FormLabel>CVC</FormLabel>
+   830→   830→                          <FormControl>
+   831→   831→                            <Input
+   832→   832→                              placeholder="123"
+   833→   833→                              {...field}
+   834→   834→                              onChange={(e) => {
+   835→   835→                                const val = e.target.value
+   836→   836→                                    .replace(/\D/g, '')
+   837→   837→                                    .slice(0, 4)
+   838→   838→                                field.onChange(val)
+   839→   839→                              }}
+   840→   840→                              maxLength={4}
+   841→   841→                              type="password"
+   842→   842→                            />
+   843→   843→                          </FormControl>
+   844→   844→                          <FormMessage />
+   845→   845→                        </FormItem>
+   846→   846→                      )}
+   847→   847→                    />
+   848→   848→                  </div>
+   849→   849→
+   850→   850→                  {/* Security notice */}
+   851→   851→                  <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
+   852→   852→                    <Lock className="h-3.5 w-3.5 shrink-0" />
+   853→   853→                    <span>
+   854→   854→                      Your payment information is encrypted and secure. This is a
+   855→   855→                      demo — no real charges will be made.
+   856→   856→                    </span>
+   857→   857→                  </div>
+   858→   858→
+   859→   859→                  {/* Actions */}
+   860→   860→                  <div className="flex items-center justify-between pt-4">
+   861→   861→                    <Button
+   862→   862→                      type="button"
+   863→   863→                      variant="ghost"
+   864→   864→                      className="gap-2"
+   865→   865→                      onClick={onBack}
+   866→   866→                      disabled={isSubmitting}
+   867→   867→                    >
+   868→   868→                      <ArrowLeft className="h-4 w-4" />
+   869→   869→                      Back to Shipping
+   870→   870→                    </Button>
+   871→   871→                    <Button type="submit" className="gap-2" disabled={isSubmitting}>
+   872→   872→                      {isSubmitting ? (
+   873→   873→                        <>
+   874→   874→                          <Loader2 className="h-4 w-4 animate-spin" />
+   875→   875→                          Processing...
+   876→   876→                        </>
+   877→   877→                      ) : (
+   878→   878→                        <>
+   879→   879→                          <Lock className="h-4 w-4" />
+   880→   880→                          Place Order
+   881→   881→                        </>
+   882→   882→                      )}
+   883→   883→                    </Button>
+   884→   884→                  </div>
+   885→   885→                </form>
+   886→   886→              </Form>
+   887→   887→            </CardContent>
+   888→   888→          </Card>
+   889→   889→        </div>
+   890→   890→
+   891→   891→        {/* Sidebar summary */}
+   892→   892→        <div className="lg:col-span-1">
+   893→   893→          <Card className="sticky top-24">
+   894→   894→            <CardHeader className="pb-3">
+   895→   895→              <CardTitle className="text-lg">Order Summary</CardTitle>
+   896→   896→            </CardHeader>
+   897→   897→            <CardContent>
+   898→   898→              {/* Desktop: full summary */}
+   899→   899→              <div className="hidden lg:block">
+   900→   900→                <CheckoutOrderSummary
+   901→   901→                  couponResult={couponResult}
+   902→   902→                  shippingMethod={shippingMethod}
+   903→   903→                />
+   904→   904→              </div>
+   905→   905→              {/* Mobile: collapsible */}
+   906→   906→              <div className="lg:hidden">
+   907→   907→                <CheckoutOrderSummary
+   908→   908→                  couponResult={couponResult}
+   909→   909→                  shippingMethod={shippingMethod}
+   910→   910→                  collapsible
+   911→   911→                />
+   912→   912→              </div>
+   913→   913→            </CardContent>
+   914→   914→          </Card>
+   915→   915→        </div>
+   916→   916→      </div>
+   917→   917→    </motion.div>
+   918→   918→  )
+   919→   919→}
+   920→   920→
+   921→   921→// ============================================================================
+   922→   922→// Step 3: Confirmation
+   923→   923→// ============================================================================
+   924→   924→
+   925→   925→function ConfirmationStep({ orderNumber }: { orderNumber: string }) {
+   926→   926→  const navigate = useRouterStore((s) => s.navigate)
+   927→   927→
+   928→   928→  return (
+   929→   929→    <motion.div
+   930→   930→      initial={{ opacity: 0, scale: 0.95 }}
+   931→   931→      animate={{ opacity: 1, scale: 1 }}
+   932→   932→      transition={{ duration: 0.4 }}
+   933→   933→      className="max-w-lg mx-auto text-center py-12"
+   934→   934→    >
+   935→   935→      <ConfettiEffect />
+   936→   936→
+   937→   937→      {/* Success animation */}
+   938→   938→      <motion.div
+   939→   939→        initial={{ scale: 0 }}
+   940→   940→        animate={{ scale: 1 }}
+   941→   941→        transition={{ type: 'spring', stiffness: 200, damping: 15, delay: 0.2 }}
+   942→   942→        className="mx-auto mb-6"
+   943→   943→      >
+   944→   944→        <div className="h-24 w-24 rounded-full bg-emerald-100 dark:bg-emerald-950/50 flex items-center justify-center mx-auto">
+   945→   945→          <motion.div
+   946→   946→            initial={{ scale: 0 }}
+   947→   947→            animate={{ scale: 1 }}
+   948→   948→            transition={{ type: 'spring', stiffness: 200, damping: 15, delay: 0.4 }}
+   949→   949→          >
+   950→   950→            <CheckCircle2 className="h-12 w-12 text-emerald-500" />
+   951→   951→          </motion.div>
+   952→   952→        </div>
+   953→   953→      </motion.div>
+   954→   954→
+   955→   955→      <motion.div
+   956→   956→        initial={{ opacity: 0, y: 20 }}
+   957→   957→        animate={{ opacity: 1, y: 0 }}
+   958→   958→        transition={{ delay: 0.5 }}
+   959→   959→      >
+   960→   960→        <h2 className="text-2xl font-bold text-foreground mb-2">
+   961→   961→          Order Confirmed!
+   962→   962→        </h2>
+   963→   963→        <p className="text-muted-foreground mb-6">
+   964→   964→          Thank you for your purchase. Your order has been placed successfully.
+   965→   965→        </p>
+   966→   966→      </motion.div>
+   967→   967→
+   968→   968→      <motion.div
+   969→   969→        initial={{ opacity: 0, y: 20 }}
+   970→   970→        animate={{ opacity: 1, y: 0 }}
+   971→   971→        transition={{ delay: 0.7 }}
+   972→   972→      >
+   973→   973→        <Card className="mb-8">
+   974→   974→          <CardContent className="p-6">
+   975→   975→            <div className="space-y-3">
+   976→   976→              <div className="flex justify-between text-sm">
+   977→   977→                <span className="text-muted-foreground">Order Number</span>
+   978→   978→                <span className="font-mono font-semibold text-foreground">
+   979→   979→                  {orderNumber}
+   980→   980→                </span>
+   981→   981→              </div>
+   982→   982→              <Separator />
+   983→   983→              <div className="flex justify-between text-sm">
+   984→   984→                <span className="text-muted-foreground">Status</span>
+   985→   985→                <Badge className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">
+   986→   986→                  Confirmed
+   987→   987→                </Badge>
+   988→   988→              </div>
+   989→   989→              <div className="flex justify-between text-sm">
+   990→   990→                <span className="text-muted-foreground">Estimated Delivery</span>
+   991→   991→                <span className="font-medium">
+   992→   992→                  {new Date(
+   993→   993→                    Date.now() + 7 * 24 * 60 * 60 * 1000
+   994→   994→                  ).toLocaleDateString('en-US', {
+   995→   995→                    month: 'short',
+   996→   996→                    day: 'numeric',
+   997→   997→                    year: 'numeric',
+   998→   998→                  })}
+   999→   999→                </span>
+  1000→  1000→              </div>
+  1001→  1001→            </div>
+  1002→  1002→          </CardContent>
+  1003→  1003→        </Card>
+  1004→  1004→      </motion.div>
+  1005→  1005→
+  1006→  1006→      <motion.div
+  1007→  1007→        initial={{ opacity: 0, y: 20 }}
+  1008→  1008→        animate={{ opacity: 1, y: 0 }}
+  1009→  1009→        transition={{ delay: 0.9 }}
+  1010→  1010→        className="flex flex-col sm:flex-row items-center justify-center gap-3"
+  1011→  1011→      >
+  1012→  1012→        <Button
+  1013→  1013→          variant="outline"
+  1014→  1014→          className="gap-2 w-full sm:w-auto"
+  1015→  1015→          onClick={() => navigate('account-orders')}
+  1016→  1016→        >
+  1017→  1017→          <Package className="h-4 w-4" />
+  1018→  1018→          View Orders
+  1019→  1019→        </Button>
+  1020→  1020→        <Button
+  1021→  1021→          className="gap-2 w-full sm:w-auto"
+  1022→  1022→          onClick={() => navigate('products')}
+  1023→  1023→        >
+  1024→  1024→          <ShoppingBag className="h-4 w-4" />
+  1025→  1025→          Continue Shopping
+  1026→  1026→        </Button>
+  1027→  1027→      </motion.div>
+  1028→  1028→    </motion.div>
+  1029→  1029→  )
+  1030→  1030→}
+  1031→  1031→
+  1032→  1032→// ============================================================================
+  1033→  1033→// Main Checkout Page
+  1034→  1034→// ============================================================================
+  1035→  1035→
+  1036→  1036→export default function CheckoutPage() {
+  1037→  1037→  const items = useCartStore((s) => s.items)
+  1038→  1038→  const clearCart = useCartStore((s) => s.clearCart)
+  1039→  1039→  const couponCode = useCartStore((s) => s.couponCode)
+  1040→  1040→  const navigate = useRouterStore((s) => s.navigate)
+  1041→  1041→  const user = useAuthStore((s) => s.user)
+  1042→  1042→
+  1043→  1043→  const [currentStep, setCurrentStep] = useState<CheckoutStep>('shipping')
+  1044→  1044→  const [shippingMethod, setShippingMethod] = useState('standard')
+  1045→  1045→  const [shippingAddress, setShippingAddress] = useState<ShippingFormValues | null>(null)
+  1046→  1046→  const [orderNumber, setOrderNumber] = useState('')
+  1047→  1047→  const [isSubmitting, setIsSubmitting] = useState(false)
+  1048→  1048→  const [orderError, setOrderError] = useState<string | null>(null)
+  1049→  1049→
+  1050→  1050→  const [couponResult, setCouponResult] = useState<CouponResult | null>(null)
+  1051→  1051→
+  1052→  1052→  // Redirect to cart if empty (except on confirmation step)
+  1053→  1053→  useEffect(() => {
+  1054→  1054→    if (items.length === 0 && currentStep !== 'confirmation') {
+  1055→  1055→      navigate('cart')
+  1056→  1056→    }
+  1057→  1057→  }, [items.length, currentStep, navigate])
+  1058→  1058→
+  1059→  1059→  // Redirect to login if not authenticated
+  1060→  1060→  useEffect(() => {
+  1061→  1061→    if (!user) {
+  1062→  1062→      navigate('login')
+  1063→  1063→    }
+  1064→  1064→  }, [user, navigate])
+  1065→  1065→
+  1066→  1066→  // Validate coupon on mount if we have one
+  1067→  1067→  useEffect(() => {
+  1068→  1068→    if (couponCode && !couponResult) {
+  1069→  1069→      const subtotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0)
+  1070→  1070→      fetch(`/api/coupons?code=${encodeURIComponent(couponCode)}&subtotal=${subtotal}`)
+  1071→  1071→        .then((res) => res.json())
+  1072→  1072→        .then((data) => {
+  1073→  1073→          if (!data.error) {
+  1074→  1074→            setCouponResult(data)
+  1075→  1075→          }
+  1076→  1076→        })
+  1077→  1077→        .catch(() => {
+  1078→  1078→          // Silently fail — coupon will just not apply
+  1079→  1079→        })
+  1080→  1080→    }
+  1081→  1081→  }, [couponCode, couponResult, items])
+  1082→  1082→
+  1083→  1083→  const handleShippingSubmit = useCallback(
+  1084→  1084→    (data: ShippingFormValues) => {
+  1085→  1085→      setShippingAddress(data)
+  1086→  1086→      setCurrentStep('payment')
+  1087→  1087→      window.scrollTo({ top: 0, behavior: 'smooth' })
+  1088→  1088→    },
+  1089→  1089→    []
+  1090→  1090→  )
+  1091→  1091→
+  1092→  1092→  const handlePaymentSubmit = useCallback(
+  1093→  1093→    async (_data: PaymentFormValues) => {
+  1094→  1094→      if (!user?.id) {
+  1095→  1095→        setOrderError('Please sign in to place an order.')
+  1096→  1096→        navigate('login')
+  1097→  1097→        return
+  1098→  1098→      }
+  1099→  1099→
+  1100→  1100→      setIsSubmitting(true)
+  1101→  1101→      setOrderError(null)
+  1102→  1102→
+  1103→  1103→      try {
+  1104→  1104→        const subtotal = items.reduce(
+  1105→  1105→          (sum, item) => sum + item.price * item.quantity,
+  1106→  1106→          0
+  1107→  1107→        )
+  1108→  1108→        const discount = couponResult?.discount ?? 0
+  1109→  1109→        const shipping =
+  1110→  1110→          shippingMethod === 'express'
+  1111→  1111→            ? 9.99
+  1112→  1112→            : subtotal >= 50
+  1113→  1113→              ? 0
+  1114→  1114→              : 9.99
+  1115→  1115→        const afterDiscount = subtotal - discount
+  1116→  1116→        const tax = Math.round(afterDiscount * 0.08 * 100) / 100
+  1117→  1117→        const total = Math.round((afterDiscount + shipping + tax) * 100) / 100
+  1118→  1118→
+  1119→  1119→        const orderItems = items.map((item) => ({
+  1120→  1120→          productId: item.productId,
+  1121→  1121→          variantId: item.variantId || null,
+  1122→  1122→          productName: item.name,
+  1123→  1123→          variantName: item.variantName || null,
+  1124→  1124→          sku: item.sku,
+  1125→  1125→          price: item.price,
+  1126→  1126→          quantity: item.quantity,
+  1127→  1127→          total: item.price * item.quantity,
+  1128→  1128→          image: item.image || null,
+  1129→  1129→        }))
+  1130→  1130→
+  1131→  1131→        const orderPayload = {
+  1132→  1132→          userId: user.id,
+  1133→  1133→          items: orderItems,
+  1134→  1134→          shippingAddress,
+  1135→  1135→          billingAddress: shippingAddress,
+  1136→  1136→          shippingMethod:
+  1137→  1137→            shippingMethod === 'express' ? 'Express' : 'Standard',
+  1138→  1138→          subtotal,
+  1139→  1139→          taxAmount: tax,
+  1140→  1140→          shippingAmount: shipping,
+  1141→  1141→          discountAmount: discount,
+  1142→  1142→          totalAmount: total,
+  1143→  1143→          couponId: couponResult?.id || null,
+  1144→  1144→        }
+  1145→  1145→
+  1146→  1146→        const res = await fetch('/api/orders', {
+  1147→  1147→          method: 'POST',
+  1148→  1148→          headers: { 'Content-Type': 'application/json' },
+  1149→  1149→          body: JSON.stringify(orderPayload),
+  1150→  1150→        })
+  1151→  1151→
+  1152→  1152→        const data = await res.json()
+  1153→  1153→
+  1154→  1154→        if (!res.ok) {
+  1155→  1155→          throw new Error(data.error || 'Failed to place order')
+  1156→  1156→        }
+  1157→  1157→
+  1158→  1158→        setOrderNumber(data.orderNumber)
+  1159→  1159→        clearCart()
+  1160→  1160→        setCurrentStep('confirmation')
+  1161→  1161→        window.scrollTo({ top: 0, behavior: 'smooth' })
+  1162→  1162→      } catch (error) {
+  1163→  1163→        console.error('Order creation error:', error)
+  1164→  1164→        setOrderError(
+  1165→  1165→          error instanceof Error ? error.message : 'Failed to place order. Please try again.'
+  1166→  1166→        )
+  1167→  1167→      } finally {
+  1168→  1168→        setIsSubmitting(false)
+  1169→  1169→      }
+  1170→  1170→    },
+  1171→  1171→    [items, shippingMethod, shippingAddress, couponResult, user, clearCart, navigate]
+  1172→  1172→  )
+  1173→  1173→
+  1174→  1174→  const handleBackToShipping = useCallback(() => {
+  1175→  1175→    setCurrentStep('shipping')
+  1176→  1176→    window.scrollTo({ top: 0, behavior: 'smooth' })
+  1177→  1177→  }, [])
+  1178→  1178→
+  1179→  1179→  return (
+  1180→  1180→    <div className="container mx-auto px-4 py-8 max-w-6xl">
+  1181→  1181→      {/* Header */}
+  1182→  1182→      <motion.div
+  1183→  1183→        initial={{ opacity: 0, y: -10 }}
+  1184→  1184→        animate={{ opacity: 1, y: 0 }}
+  1185→  1185→        className="mb-6"
+  1186→  1186→      >
+  1187→  1187→        <h1 className="text-3xl font-bold text-foreground">Checkout</h1>
+  1188→  1188→        <p className="text-muted-foreground mt-1">
+  1189→  1189→          Complete your purchase
+  1190→  1190→        </p>
+  1191→  1191→      </motion.div>
+  1192→  1192→
+  1193→  1193→      {/* Stepper */}
+  1194→  1194→      <CheckoutStepper currentStep={currentStep} />
+  1195→  1195→
+  1196→  1196→      {/* Error banner */}
+  1197→  1197→      {orderError && (
+  1198→  1198→        <motion.div
+  1199→  1199→          initial={{ opacity: 0, y: -10 }}
+  1200→  1200→          animate={{ opacity: 1, y: 0 }}
+  1201→  1201→          className="mb-6 rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive"
+  1202→  1202→        >
+  1203→  1203→          {orderError}
+  1204→  1204→        </motion.div>
+  1205→  1205→      )}
+  1206→  1206→
+  1207→  1207→      {/* Steps */}
+  1208→  1208→      <AnimatePresence mode="wait">
+  1209→  1209→        {currentStep === 'shipping' && (
+  1210→  1210→          <ShippingStep
+  1211→  1211→            key="shipping"
+  1212→  1212→            onSubmit={handleShippingSubmit}
+  1213→  1213→            shippingMethod={shippingMethod}
+  1214→  1214→            onShippingMethodChange={setShippingMethod}
+  1215→  1215→            couponResult={couponResult}
+  1216→  1216→          />
+  1217→  1217→        )}
+  1218→  1218→        {currentStep === 'payment' && (
+  1219→  1219→          <PaymentStep
+  1220→  1220→            key="payment"
+  1221→  1221→            onSubmit={handlePaymentSubmit}
+  1222→  1222→            onBack={handleBackToShipping}
+  1223→  1223→            shippingMethod={shippingMethod}
+  1224→  1224→            couponResult={couponResult}
+  1225→  1225→            isSubmitting={isSubmitting}
+  1226→  1226→          />
+  1227→  1227→        )}
+  1228→  1228→        {currentStep === 'confirmation' && (
+  1229→  1229→          <ConfirmationStep key="confirmation" orderNumber={orderNumber} />
+  1230→  1230→        )}
+  1231→  1231→      </AnimatePresence>
+  1232→  1232→    </div>
+  1233→  1233→  )
+  1234→  1234→}
+  1235→  1235→

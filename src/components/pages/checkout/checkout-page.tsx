@@ -1,3 +1,22 @@
+/**
+ * @file checkout-page.tsx
+ * @description Multi-step checkout page component for the ShopForge e-commerce application.
+ * Guides the customer through shipping address entry, payment details, and order confirmation
+ * with a stepper UI, form validation, and a celebratory confetti effect on successful orders.
+ *
+ * @keyfeatures
+ * - Three-step checkout flow: Shipping → Payment → Confirmation
+ * - Visual stepper with completed/current/pending state indicators
+ * - Shipping address form with Zod schema validation (name, address, city, state, zip, phone)
+ * - Payment form with card number formatting, expiry auto-slash, and CVC masking
+ * - Standard vs. Express shipping method selection with dynamic pricing
+ * - Order summary sidebar (full on desktop, collapsible on mobile)
+ * - Coupon code re-validation on mount (carried over from cart page)
+ * - Order creation via POST /api/orders with full cart and address payload
+ * - Confetti animation and order confirmation display on success
+ * - Redirect guards: empty cart → cart page, unauthenticated → login page
+ */
+
 'use client'
 
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
@@ -50,6 +69,16 @@ import {
 // Types
 // ============================================================================
 
+/**
+ * Represents the result returned from the coupon validation API.
+ * Contains the coupon details and the calculated discount amount.
+ *
+ * @property id       - Unique coupon identifier from the database
+ * @property code     - The coupon code string (e.g., "SAVE10")
+ * @property type     - Discount type: "PERCENTAGE" or "FIXED"
+ * @property value    - The discount value (percentage number or fixed dollar amount)
+ * @property discount - The calculated discount amount in dollars applied to the current cart
+ */
 interface CouponResult {
   id: string
   code: string
@@ -58,12 +87,25 @@ interface CouponResult {
   discount: number
 }
 
+/**
+ * Union type representing the three steps in the checkout flow.
+ * - 'shipping'     — Collect shipping address and method
+ * - 'payment'      — Collect payment card details and place order
+ * - 'confirmation' — Display order confirmation after successful placement
+ */
 type CheckoutStep = 'shipping' | 'payment' | 'confirmation'
 
 // ============================================================================
 // Helpers
 // ============================================================================
 
+/**
+ * Formats a numeric price value into a USD currency string.
+ * Uses the Intl.NumberFormat API for locale-aware formatting.
+ *
+ * @param price - The numeric price value to format
+ * @returns Formatted currency string (e.g., "$19.99")
+ */
 function formatPrice(price: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -71,6 +113,11 @@ function formatPrice(price: number): string {
   }).format(price)
 }
 
+/**
+ * Array of Tailwind CSS gradient class pairs used as product image placeholders.
+ * Each entry provides a unique color gradient to visually differentiate products
+ * when actual product images are not available.
+ */
 const PRODUCT_GRADIENTS = [
   'from-rose-400 to-pink-500',
   'from-violet-400 to-purple-500',
@@ -82,6 +129,14 @@ const PRODUCT_GRADIENTS = [
   'from-lime-400 to-green-500',
 ]
 
+/**
+ * Generates a deterministic gradient class string based on a product ID.
+ * Uses a simple hash function to consistently map the same product ID
+ * to the same gradient, ensuring visual consistency across re-renders.
+ *
+ * @param productId - The unique product identifier to hash
+ * @returns A Tailwind CSS gradient class string (e.g., "from-rose-400 to-pink-500")
+ */
 function getGradient(productId: string): string {
   let hash = 0
   for (let i = 0; i < productId.length; i++) {
@@ -94,6 +149,13 @@ function getGradient(productId: string): string {
 // Zod Schema
 // ============================================================================
 
+/**
+ * Zod validation schema for the shipping address form.
+ * Validates all required address fields with appropriate rules:
+ * - Names and address fields require at least 1 character
+ * - Postal code must match US ZIP format (5-digit or ZIP+4)
+ * - Phone number must match common international formats
+ */
 const shippingSchema = z.object({
   firstName: z.string().min(1, 'First name is required'),
   lastName: z.string().min(1, 'Last name is required'),
@@ -112,8 +174,14 @@ const shippingSchema = z.object({
     .regex(/^[+]?[0-9\s\-()]{7,20}$/, 'Enter a valid phone number'),
 })
 
+/** Inferred TypeScript type from the shipping Zod schema */
 type ShippingFormValues = z.infer<typeof shippingSchema>
 
+/**
+ * Zod validation schema for the payment card form.
+ * Validates card number (13-19 digits with spaces), expiry (MM/YY),
+ * and CVC (3-4 digits) with appropriate regex patterns.
+ */
 const paymentSchema = z.object({
   cardNumber: z
     .string()
@@ -129,12 +197,22 @@ const paymentSchema = z.object({
     .regex(/^[0-9]{3,4}$/, 'Enter a valid CVC'),
 })
 
+/** Inferred TypeScript type from the payment Zod schema */
 type PaymentFormValues = z.infer<typeof paymentSchema>
 
 // ============================================================================
 // Confetti Effect
 // ============================================================================
 
+/**
+ * ConfettiEffect renders a full-screen canvas-based confetti animation
+ * that plays once when the order is successfully placed. Particles are
+ * launched from the center of the screen with random velocities, colors,
+ * and rotation speeds, then fade out over time.
+ *
+ * The animation automatically cleans up via requestAnimationFrame cancellation
+ * when the component unmounts.
+ */
 function ConfettiEffect() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
@@ -145,14 +223,17 @@ function ConfettiEffect() {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
+    // Set canvas to full viewport size
     canvas.width = window.innerWidth
     canvas.height = window.innerHeight
 
+    // Festive color palette for confetti particles
     const colors = [
       '#f59e0b', '#ef4444', '#10b981', '#8b5cf6',
       '#ec4899', '#06b6d4', '#f97316', '#14b8a6',
     ]
 
+    // Particle type definition for the confetti system
     const particles: Array<{
       x: number
       y: number
@@ -165,6 +246,7 @@ function ConfettiEffect() {
       opacity: number
     }> = []
 
+    // Initialize 120 confetti particles with random properties
     for (let i = 0; i < 120; i++) {
       particles.push({
         x: canvas.width / 2 + (Math.random() - 0.5) * 200,
@@ -181,18 +263,21 @@ function ConfettiEffect() {
 
     let animationId: number
 
+    /** Animation loop — updates and renders each particle every frame */
     function animate() {
       if (!ctx || !canvas) return
       ctx.clearRect(0, 0, canvas.width, canvas.height)
 
       let alive = false
       particles.forEach((p) => {
+        // Apply physics: velocity, gravity, rotation, and fade
         p.x += p.vx
         p.y += p.vy
-        p.vy += 0.3
+        p.vy += 0.3       // Gravity pulls particles downward
         p.rotation += p.rotationSpeed
-        p.opacity -= 0.008
+        p.opacity -= 0.008 // Gradually fade out
 
+        // Only render particles that are still visible
         if (p.opacity > 0) {
           alive = true
           ctx.save()
@@ -200,6 +285,7 @@ function ConfettiEffect() {
           ctx.rotate((p.rotation * Math.PI) / 180)
           ctx.globalAlpha = p.opacity
           ctx.fillStyle = p.color
+          // Draw rectangular confetti piece
           ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6)
           ctx.restore()
         }
@@ -208,12 +294,15 @@ function ConfettiEffect() {
       if (alive) {
         animationId = requestAnimationFrame(animate)
       } else {
+        // All particles faded out — clear the canvas
         ctx.clearRect(0, 0, canvas.width, canvas.height)
       }
     }
 
+    // Start the animation loop
     animate()
 
+    // Cleanup: cancel animation frame on unmount
     return () => {
       cancelAnimationFrame(animationId)
     }
@@ -232,24 +321,37 @@ function ConfettiEffect() {
 // Stepper
 // ============================================================================
 
+/**
+ * CheckoutStepper renders a horizontal step indicator showing the current
+ * position in the checkout flow. Each step displays an icon and label,
+ * with visual styling for completed (green check), current (primary color),
+ * and pending (muted) states. Steps are connected by horizontal lines
+ * that fill with color as steps are completed.
+ *
+ * @param props
+ * @param props.currentStep - The active checkout step ('shipping' | 'payment' | 'confirmation')
+ */
 function CheckoutStepper({ currentStep }: { currentStep: CheckoutStep }) {
+  // Define the three checkout steps with their icons and labels
   const steps = [
     { key: 'shipping' as const, label: 'Shipping', icon: Truck },
     { key: 'payment' as const, label: 'Payment', icon: CreditCard },
     { key: 'confirmation' as const, label: 'Confirmation', icon: CheckCircle2 },
   ]
 
+  // Determine the index of the current step for progress calculation
   const currentIndex = steps.findIndex((s) => s.key === currentStep)
 
   return (
     <div className="flex items-center justify-center gap-0 w-full max-w-lg mx-auto mb-8">
       {steps.map((step, index) => {
-        const isCompleted = index < currentIndex
-        const isCurrent = index === currentIndex
+        const isCompleted = index < currentIndex  // Step was already finished
+        const isCurrent = index === currentIndex   // Step is currently active
         const Icon = step.icon
 
         return (
           <div key={step.key} className="flex items-center flex-1 last:flex-initial">
+            {/* Step circle with icon — changes appearance based on state */}
             <div className="flex flex-col items-center gap-1.5">
               <div
                 className={`h-10 w-10 rounded-full flex items-center justify-center border-2 transition-all duration-300 ${
@@ -260,12 +362,14 @@ function CheckoutStepper({ currentStep }: { currentStep: CheckoutStep }) {
                       : 'bg-background border-muted-foreground/30 text-muted-foreground'
                 }`}
               >
+                {/* Show checkmark for completed steps, icon for current/pending */}
                 {isCompleted ? (
                   <CheckCircle2 className="h-5 w-5" />
                 ) : (
                   <Icon className="h-5 w-5" />
                 )}
               </div>
+              {/* Step label — color changes based on state */}
               <span
                 className={`text-xs font-medium whitespace-nowrap ${
                   isCompleted
@@ -278,6 +382,7 @@ function CheckoutStepper({ currentStep }: { currentStep: CheckoutStep }) {
                 {step.label}
               </span>
             </div>
+            {/* Connecting line between steps — fills green when the preceding step is complete */}
             {index < steps.length - 1 && (
               <div
                 className={`flex-1 h-0.5 mx-3 mt-[-1.25rem] transition-colors duration-300 ${
@@ -298,6 +403,18 @@ function CheckoutStepper({ currentStep }: { currentStep: CheckoutStep }) {
 // Order Summary Component
 // ============================================================================
 
+/**
+ * CheckoutOrderSummary renders a compact order summary showing all cart items,
+ * price breakdown (subtotal, discount, shipping, tax, total), and optionally
+ * wraps the content in a collapsible container for mobile views.
+ *
+ * @param props
+ * @param props.couponResult    - Validated coupon result, or null if none applied
+ * @param props.shippingMethod  - Selected shipping method ('standard' or 'express')
+ * @param props.collapsible     - If true, wraps content in a Collapsible component (for mobile)
+ *
+ * @state isOpen - Controls the collapsible open/close state (mobile only)
+ */
 function CheckoutOrderSummary({
   couponResult,
   shippingMethod,
@@ -308,43 +425,50 @@ function CheckoutOrderSummary({
   collapsible?: boolean
 }) {
   const items = useCartStore((s) => s.items)
+  /** Controls the collapsible section open state on mobile */
   const [isOpen, setIsOpen] = useState(false)
 
+  /** Calculate subtotal from all cart items (price × quantity) */
   const subtotal = useMemo(() => {
     return items.reduce((sum, item) => sum + item.price * item.quantity, 0)
   }, [items])
 
-  const discount = couponResult?.discount ?? 0
-  const shipping =
+  // Price breakdown calculations
+  const discount = couponResult?.discount ?? 0                          // Discount from applied coupon
+  const shipping =                                                      // Express: $9.99, Standard: free if $50+, else $9.99
     shippingMethod === 'express'
       ? 9.99
       : subtotal >= 50
         ? 0
         : 9.99
-  const afterDiscount = subtotal - discount
-  const tax = Math.round(afterDiscount * 0.08 * 100) / 100
-  const total = Math.round((afterDiscount + shipping + tax) * 100) / 100
+  const afterDiscount = subtotal - discount                             // Subtotal minus coupon discount
+  const tax = Math.round(afterDiscount * 0.08 * 100) / 100             // 8% tax on discounted subtotal
+  const total = Math.round((afterDiscount + shipping + tax) * 100) / 100 // Final total
 
+  /** The summary content — reused in both collapsible and non-collapsible modes */
   const content = (
     <div className="space-y-3">
-      {/* Items */}
+      {/* Cart items list — scrollable if many items */}
       <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
         {items.map((item) => (
           <div
             key={`${item.productId}-${item.variantId || 'default'}`}
             className="flex items-center gap-3"
           >
+            {/* Product image placeholder with gradient */}
             <div
               className={`h-10 w-10 rounded-md bg-gradient-to-br ${getGradient(item.productId)} flex items-center justify-center shrink-0`}
             >
               <ShoppingBag className="h-4 w-4 text-white/70" />
             </div>
+            {/* Product name and variant */}
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{item.name}</p>
               {item.variantName && (
                 <p className="text-xs text-muted-foreground">{item.variantName}</p>
               )}
             </div>
+            {/* Line total and quantity indicator */}
             <div className="text-right shrink-0">
               <p className="text-sm font-medium">
                 {formatPrice(item.price * item.quantity)}
@@ -359,11 +483,13 @@ function CheckoutOrderSummary({
 
       <Separator />
 
+      {/* Price breakdown section */}
       <div className="space-y-2 text-sm">
         <div className="flex justify-between">
           <span className="text-muted-foreground">Subtotal</span>
           <span>{formatPrice(subtotal)}</span>
         </div>
+        {/* Discount line — only shown when a coupon discount exists */}
         {discount > 0 && (
           <div className="flex justify-between">
             <span className="text-muted-foreground">Discount</span>
@@ -372,6 +498,7 @@ function CheckoutOrderSummary({
             </span>
           </div>
         )}
+        {/* Shipping line — shows "Free" badge or dollar amount */}
         <div className="flex justify-between">
           <span className="text-muted-foreground">Shipping</span>
           {shipping === 0 ? (
@@ -385,6 +512,7 @@ function CheckoutOrderSummary({
             <span>{formatPrice(shipping)}</span>
           )}
         </div>
+        {/* Tax line — fixed 8% rate */}
         <div className="flex justify-between">
           <span className="text-muted-foreground">Tax (8%)</span>
           <span>{formatPrice(tax)}</span>
@@ -393,6 +521,7 @@ function CheckoutOrderSummary({
 
       <Separator />
 
+      {/* Final total */}
       <div className="flex justify-between items-baseline">
         <span className="font-semibold">Total</span>
         <span className="text-lg font-bold">{formatPrice(total)}</span>
@@ -400,6 +529,7 @@ function CheckoutOrderSummary({
     </div>
   )
 
+  // Render in collapsible mode for mobile, or standard div for desktop
   if (collapsible) {
     return (
       <Collapsible open={isOpen} onOpenChange={setIsOpen}>
@@ -423,6 +553,17 @@ function CheckoutOrderSummary({
 // Step 1: Shipping
 // ============================================================================
 
+/**
+ * ShippingStep renders the first checkout step containing the shipping address
+ * form and shipping method selection. The form is validated using Zod schema
+ * and react-hook-form. It includes a sidebar with the order summary.
+ *
+ * @param props
+ * @param props.onSubmit               - Callback fired when the shipping form is submitted with valid data
+ * @param props.shippingMethod         - Currently selected shipping method ('standard' or 'express')
+ * @param props.onShippingMethodChange - Callback to update the selected shipping method
+ * @param props.couponResult           - Validated coupon result for price calculation, or null
+ */
 function ShippingStep({
   onSubmit,
   shippingMethod,
@@ -437,6 +578,7 @@ function ShippingStep({
   const navigate = useRouterStore((s) => s.navigate)
   const subtotal = useCartStore((s) => s.getSubtotal())
 
+  // Initialize the shipping form with Zod resolver and default values
   const form = useForm<ShippingFormValues>({
     resolver: zodResolver(shippingSchema),
     defaultValues: {
@@ -452,6 +594,7 @@ function ShippingStep({
     },
   })
 
+  // Determine if standard shipping is free based on subtotal threshold
   const standardShippingFree = subtotal >= 50
 
   return (
@@ -462,7 +605,7 @@ function ShippingStep({
       transition={{ duration: 0.3 }}
     >
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Form */}
+        {/* Shipping form — spans 2 columns on large screens */}
         <div className="lg:col-span-2">
           <Card>
             <CardHeader>
@@ -477,7 +620,7 @@ function ShippingStep({
                   onSubmit={form.handleSubmit(onSubmit)}
                   className="space-y-4"
                 >
-                  {/* Name row */}
+                  {/* First and last name — side by side on larger screens */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <FormField
                       control={form.control}
@@ -507,7 +650,7 @@ function ShippingStep({
                     />
                   </div>
 
-                  {/* Street */}
+                  {/* Street address line 1 — required */}
                   <FormField
                     control={form.control}
                     name="street1"
@@ -521,6 +664,7 @@ function ShippingStep({
                       </FormItem>
                     )}
                   />
+                  {/* Street address line 2 — optional (apartment, suite, etc.) */}
                   <FormField
                     control={form.control}
                     name="street2"
@@ -538,7 +682,7 @@ function ShippingStep({
                     )}
                   />
 
-                  {/* City / State / Zip */}
+                  {/* City, State, and Postal Code — 3-column grid on larger screens */}
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                     <FormField
                       control={form.control}
@@ -581,7 +725,7 @@ function ShippingStep({
                     />
                   </div>
 
-                  {/* Country / Phone */}
+                  {/* Country and Phone — 2-column grid on larger screens */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <FormField
                       control={form.control}
@@ -613,7 +757,7 @@ function ShippingStep({
 
                   <Separator className="my-6" />
 
-                  {/* Shipping Method */}
+                  {/* Shipping method selection — radio group with styled cards */}
                   <div>
                     <h3 className="font-semibold mb-3">Shipping Method</h3>
                     <RadioGroup
@@ -621,6 +765,7 @@ function ShippingStep({
                       onValueChange={onShippingMethodChange}
                       className="space-y-3"
                     >
+                      {/* Standard shipping option — free for orders $50+ */}
                       <Label
                         htmlFor="standard"
                         className={`flex items-center justify-between rounded-lg border p-4 cursor-pointer transition-colors ${
@@ -638,6 +783,7 @@ function ShippingStep({
                             </p>
                           </div>
                         </div>
+                        {/* Price display — "Free" badge if subtotal >= $50, otherwise $9.99 */}
                         <span className="text-sm font-medium">
                           {standardShippingFree ? (
                             <Badge
@@ -652,6 +798,7 @@ function ShippingStep({
                         </span>
                       </Label>
 
+                      {/* Express shipping option — always $9.99 */}
                       <Label
                         htmlFor="express"
                         className={`flex items-center justify-between rounded-lg border p-4 cursor-pointer transition-colors ${
@@ -674,7 +821,7 @@ function ShippingStep({
                     </RadioGroup>
                   </div>
 
-                  {/* Actions */}
+                  {/* Navigation buttons — back to cart and continue to payment */}
                   <div className="flex items-center justify-between pt-4">
                     <Button
                       type="button"
@@ -696,7 +843,7 @@ function ShippingStep({
           </Card>
         </div>
 
-        {/* Sidebar summary */}
+        {/* Sidebar order summary — sticky on scroll */}
         <div className="lg:col-span-1">
           <Card className="sticky top-24">
             <CardHeader className="pb-3">
@@ -719,6 +866,19 @@ function ShippingStep({
 // Step 2: Payment
 // ============================================================================
 
+/**
+ * PaymentStep renders the second checkout step containing the payment card form.
+ * Includes card number formatting (auto-spaces every 4 digits), expiry formatting
+ * (auto-slash after month), and CVC digit-only input. The "Place Order" button
+ * triggers the order creation API call.
+ *
+ * @param props
+ * @param props.onSubmit      - Callback fired when the payment form is submitted with valid data
+ * @param props.onBack        - Callback to navigate back to the shipping step
+ * @param props.shippingMethod - Selected shipping method for price calculation
+ * @param props.couponResult  - Validated coupon result for price calculation, or null
+ * @param props.isSubmitting  - Whether the order creation request is in progress
+ */
 function PaymentStep({
   onSubmit,
   onBack,
@@ -732,6 +892,7 @@ function PaymentStep({
   couponResult: CouponResult | null
   isSubmitting: boolean
 }) {
+  // Initialize the payment form with Zod resolver and default values
   const form = useForm<PaymentFormValues>({
     resolver: zodResolver(paymentSchema),
     defaultValues: {
@@ -741,11 +902,25 @@ function PaymentStep({
     },
   })
 
+  /**
+   * Formats a card number string by stripping non-digits and inserting
+   * a space every 4 digits for readability (e.g., "4242 4242 4242 4242").
+   *
+   * @param value - Raw input string from the card number field
+   * @returns Formatted card number string with spaces
+   */
   const formatCardNumber = (value: string) => {
     const digits = value.replace(/\D/g, '').slice(0, 16)
     return digits.replace(/(\d{4})(?=\d)/g, '$1 ')
   }
 
+  /**
+   * Formats an expiry date string by stripping non-digits and inserting
+   * a slash after the first 2 digits (e.g., "12/25").
+   *
+   * @param value - Raw input string from the expiry field
+   * @returns Formatted expiry string with slash separator
+   */
   const formatExpiry = (value: string) => {
     const digits = value.replace(/\D/g, '').slice(0, 4)
     if (digits.length >= 3) {
@@ -762,7 +937,7 @@ function PaymentStep({
       transition={{ duration: 0.3 }}
     >
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Payment Form */}
+        {/* Payment form card — spans 2 columns on large screens */}
         <div className="lg:col-span-2">
           <Card>
             <CardHeader>
@@ -777,7 +952,7 @@ function PaymentStep({
                   onSubmit={form.handleSubmit(onSubmit)}
                   className="space-y-4"
                 >
-                  {/* Card Number */}
+                  {/* Card number input — auto-formats with spaces every 4 digits */}
                   <FormField
                     control={form.control}
                     name="cardNumber"
@@ -789,6 +964,7 @@ function PaymentStep({
                             placeholder="4242 4242 4242 4242"
                             {...field}
                             onChange={(e) => {
+                              // Intercept input and format the card number
                               field.onChange(formatCardNumber(e.target.value))
                             }}
                             maxLength={19}
@@ -799,8 +975,9 @@ function PaymentStep({
                     )}
                   />
 
-                  {/* Expiry & CVC */}
+                  {/* Expiry date and CVC — side by side */}
                   <div className="grid grid-cols-2 gap-4">
+                    {/* Expiry date input — auto-formats with slash (MM/YY) */}
                     <FormField
                       control={form.control}
                       name="expiry"
@@ -812,6 +989,7 @@ function PaymentStep({
                               placeholder="MM/YY"
                               {...field}
                               onChange={(e) => {
+                                // Intercept input and format the expiry date
                                 field.onChange(formatExpiry(e.target.value))
                               }}
                               maxLength={5}
@@ -821,6 +999,7 @@ function PaymentStep({
                         </FormItem>
                       )}
                     />
+                    {/* CVC input — digits only, masked as password */}
                     <FormField
                       control={form.control}
                       name="cvc"
@@ -832,6 +1011,7 @@ function PaymentStep({
                               placeholder="123"
                               {...field}
                               onChange={(e) => {
+                                // Strip non-digits and limit to 4 characters
                                 const val = e.target.value
                                     .replace(/\D/g, '')
                                     .slice(0, 4)
@@ -847,7 +1027,7 @@ function PaymentStep({
                     />
                   </div>
 
-                  {/* Security notice */}
+                  {/* Security notice — reassures the customer about payment safety */}
                   <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
                     <Lock className="h-3.5 w-3.5 shrink-0" />
                     <span>
@@ -856,7 +1036,7 @@ function PaymentStep({
                     </span>
                   </div>
 
-                  {/* Actions */}
+                  {/* Navigation buttons — back to shipping and place order */}
                   <div className="flex items-center justify-between pt-4">
                     <Button
                       type="button"
@@ -868,6 +1048,7 @@ function PaymentStep({
                       <ArrowLeft className="h-4 w-4" />
                       Back to Shipping
                     </Button>
+                    {/* Place Order button — shows loading spinner while submitting */}
                     <Button type="submit" className="gap-2" disabled={isSubmitting}>
                       {isSubmitting ? (
                         <>
@@ -888,21 +1069,21 @@ function PaymentStep({
           </Card>
         </div>
 
-        {/* Sidebar summary */}
+        {/* Sidebar order summary — sticky on scroll */}
         <div className="lg:col-span-1">
           <Card className="sticky top-24">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg">Order Summary</CardTitle>
             </CardHeader>
             <CardContent>
-              {/* Desktop: full summary */}
+              {/* Desktop: full expanded summary */}
               <div className="hidden lg:block">
                 <CheckoutOrderSummary
                   couponResult={couponResult}
                   shippingMethod={shippingMethod}
                 />
               </div>
-              {/* Mobile: collapsible */}
+              {/* Mobile: collapsible summary to save screen space */}
               <div className="lg:hidden">
                 <CheckoutOrderSummary
                   couponResult={couponResult}
@@ -922,6 +1103,15 @@ function PaymentStep({
 // Step 3: Confirmation
 // ============================================================================
 
+/**
+ * ConfirmationStep renders the final checkout step shown after a successful order.
+ * Displays a celebratory confetti animation, a success icon with spring animation,
+ * the order number, status, estimated delivery date, and navigation buttons
+ * to view orders or continue shopping.
+ *
+ * @param props
+ * @param props.orderNumber - The unique order number returned from the API after order creation
+ */
 function ConfirmationStep({ orderNumber }: { orderNumber: string }) {
   const navigate = useRouterStore((s) => s.navigate)
 
@@ -932,9 +1122,10 @@ function ConfirmationStep({ orderNumber }: { orderNumber: string }) {
       transition={{ duration: 0.4 }}
       className="max-w-lg mx-auto text-center py-12"
     >
+      {/* Full-screen confetti animation overlay */}
       <ConfettiEffect />
 
-      {/* Success animation */}
+      {/* Animated success checkmark icon */}
       <motion.div
         initial={{ scale: 0 }}
         animate={{ scale: 1 }}
@@ -952,6 +1143,7 @@ function ConfirmationStep({ orderNumber }: { orderNumber: string }) {
         </div>
       </motion.div>
 
+      {/* Success heading and message */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -965,6 +1157,7 @@ function ConfirmationStep({ orderNumber }: { orderNumber: string }) {
         </p>
       </motion.div>
 
+      {/* Order details card — order number, status, and estimated delivery */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -973,6 +1166,7 @@ function ConfirmationStep({ orderNumber }: { orderNumber: string }) {
         <Card className="mb-8">
           <CardContent className="p-6">
             <div className="space-y-3">
+              {/* Order number — monospace font for readability */}
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Order Number</span>
                 <span className="font-mono font-semibold text-foreground">
@@ -980,12 +1174,14 @@ function ConfirmationStep({ orderNumber }: { orderNumber: string }) {
                 </span>
               </div>
               <Separator />
+              {/* Order status badge */}
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Status</span>
                 <Badge className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">
                   Confirmed
                 </Badge>
               </div>
+              {/* Estimated delivery — 7 days from now */}
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">Estimated Delivery</span>
                 <span className="font-medium">
@@ -1003,6 +1199,7 @@ function ConfirmationStep({ orderNumber }: { orderNumber: string }) {
         </Card>
       </motion.div>
 
+      {/* Action buttons — navigate to orders page or continue shopping */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -1033,6 +1230,28 @@ function ConfirmationStep({ orderNumber }: { orderNumber: string }) {
 // Main Checkout Page
 // ============================================================================
 
+/**
+ * CheckoutPage is the main checkout page component that orchestrates the
+ * three-step checkout flow: Shipping → Payment → Confirmation.
+ *
+ * It manages the overall checkout state including the current step, shipping
+ * address, shipping method, and coupon data. It also handles redirect guards
+ * (empty cart → cart page, unauthenticated → login) and the order creation
+ * API call.
+ *
+ * @state currentStep      - The active checkout step in the flow
+ * @state shippingMethod   - Selected shipping method ('standard' or 'express')
+ * @state shippingAddress  - Saved shipping address from step 1, used in order payload
+ * @state orderNumber      - The order number returned after successful order creation
+ * @state isSubmitting     - Whether the order creation API call is in progress
+ * @state orderError       - Error message from a failed order creation attempt
+ * @state couponResult     - Validated coupon result carried over from the cart page
+ *
+ * @store items       - Cart items from the global cart store (Zustand)
+ * @store clearCart   - Action to empty the cart after successful order
+ * @store couponCode  - Currently applied coupon code string
+ * @store user        - Authenticated user object from the auth store
+ */
 export default function CheckoutPage() {
   const items = useCartStore((s) => s.items)
   const clearCart = useCartStore((s) => s.clearCart)
@@ -1040,30 +1259,48 @@ export default function CheckoutPage() {
   const navigate = useRouterStore((s) => s.navigate)
   const user = useAuthStore((s) => s.user)
 
+  /** Current step in the checkout flow */
   const [currentStep, setCurrentStep] = useState<CheckoutStep>('shipping')
+  /** Selected shipping method — affects shipping cost calculation */
   const [shippingMethod, setShippingMethod] = useState('standard')
+  /** Shipping address data saved from step 1, included in the order payload */
   const [shippingAddress, setShippingAddress] = useState<ShippingFormValues | null>(null)
+  /** Order number assigned by the backend after successful order creation */
   const [orderNumber, setOrderNumber] = useState('')
+  /** Loading state during the order creation API call */
   const [isSubmitting, setIsSubmitting] = useState(false)
+  /** Error message displayed when order creation fails */
   const [orderError, setOrderError] = useState<string | null>(null)
 
+  /** Coupon result carried over from the cart page */
   const [couponResult, setCouponResult] = useState<CouponResult | null>(null)
 
-  // Redirect to cart if empty (except on confirmation step)
+  /**
+   * Redirect guard: navigate back to cart if the cart becomes empty.
+   * The confirmation step is exempt — the cart is cleared after order placement.
+   */
   useEffect(() => {
     if (items.length === 0 && currentStep !== 'confirmation') {
       navigate('cart')
     }
   }, [items.length, currentStep, navigate])
 
-  // Redirect to login if not authenticated
+  /**
+   * Auth guard: redirect to login page if the user is not authenticated.
+   * Checkout requires an authenticated session to associate the order with a user.
+   */
   useEffect(() => {
     if (!user) {
       navigate('login')
     }
   }, [user, navigate])
 
-  // Validate coupon on mount if we have one
+  /**
+   * Re-validate the coupon on mount if one was applied in the cart.
+   * This ensures the coupon is still valid when the user reaches checkout,
+   * and fetches the discount amount for the order summary calculations.
+   * Silently fails if the coupon is no longer valid.
+   */
   useEffect(() => {
     if (couponCode && !couponResult) {
       const subtotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0)
@@ -1080,6 +1317,13 @@ export default function CheckoutPage() {
     }
   }, [couponCode, couponResult, items])
 
+  /**
+   * Handles shipping form submission.
+   * Saves the shipping address to state and advances to the payment step.
+   * Scrolls to the top of the page so the user sees the payment form.
+   *
+   * @param data - Validated shipping form data from react-hook-form
+   */
   const handleShippingSubmit = useCallback(
     (data: ShippingFormValues) => {
       setShippingAddress(data)
@@ -1089,18 +1333,30 @@ export default function CheckoutPage() {
     []
   )
 
+  /**
+   * Handles payment form submission and creates the order via the API.
+   * Calculates the final price breakdown, assembles the order payload with
+   * all items, addresses, and pricing, then POSTs to /api/orders.
+   * On success, clears the cart and navigates to the confirmation step.
+   * On failure, displays an error banner.
+   *
+   * @param _data - Validated payment form data (not used in payload, but required by form)
+   */
   const handlePaymentSubmit = useCallback(
     async (_data: PaymentFormValues) => {
+      // Guard: ensure the user is still authenticated
       if (!user?.id) {
         setOrderError('Please sign in to place an order.')
         navigate('login')
         return
       }
 
+      // Set loading state and clear any previous errors
       setIsSubmitting(true)
       setOrderError(null)
 
       try {
+        // Calculate the full price breakdown for the order payload
         const subtotal = items.reduce(
           (sum, item) => sum + item.price * item.quantity,
           0
@@ -1116,6 +1372,7 @@ export default function CheckoutPage() {
         const tax = Math.round(afterDiscount * 0.08 * 100) / 100
         const total = Math.round((afterDiscount + shipping + tax) * 100) / 100
 
+        // Map cart items to the order item format expected by the API
         const orderItems = items.map((item) => ({
           productId: item.productId,
           variantId: item.variantId || null,
@@ -1128,11 +1385,12 @@ export default function CheckoutPage() {
           image: item.image || null,
         }))
 
+        // Assemble the complete order payload
         const orderPayload = {
           userId: user.id,
           items: orderItems,
           shippingAddress,
-          billingAddress: shippingAddress,
+          billingAddress: shippingAddress,  // Billing same as shipping
           shippingMethod:
             shippingMethod === 'express' ? 'Express' : 'Standard',
           subtotal,
@@ -1143,6 +1401,7 @@ export default function CheckoutPage() {
           couponId: couponResult?.id || null,
         }
 
+        // Send the order creation request to the API
         const res = await fetch('/api/orders', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1152,25 +1411,33 @@ export default function CheckoutPage() {
         const data = await res.json()
 
         if (!res.ok) {
+          // API returned an error — throw with the error message
           throw new Error(data.error || 'Failed to place order')
         }
 
+        // Order created successfully — update state and navigate to confirmation
         setOrderNumber(data.orderNumber)
-        clearCart()
+        clearCart()  // Empty the cart now that the order is placed
         setCurrentStep('confirmation')
         window.scrollTo({ top: 0, behavior: 'smooth' })
       } catch (error) {
+        // Log the error for debugging and display a user-friendly message
         console.error('Order creation error:', error)
         setOrderError(
           error instanceof Error ? error.message : 'Failed to place order. Please try again.'
         )
       } finally {
+        // Always clear the loading state, regardless of success or failure
         setIsSubmitting(false)
       }
     },
     [items, shippingMethod, shippingAddress, couponResult, user, clearCart, navigate]
   )
 
+  /**
+   * Handles navigating back from the payment step to the shipping step.
+   * Scrolls to the top of the page so the user sees the shipping form.
+   */
   const handleBackToShipping = useCallback(() => {
     setCurrentStep('shipping')
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -1178,7 +1445,7 @@ export default function CheckoutPage() {
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-6xl">
-      {/* Header */}
+      {/* Page header */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -1190,10 +1457,10 @@ export default function CheckoutPage() {
         </p>
       </motion.div>
 
-      {/* Stepper */}
+      {/* Step progress indicator */}
       <CheckoutStepper currentStep={currentStep} />
 
-      {/* Error banner */}
+      {/* Error banner — displayed when order creation fails */}
       {orderError && (
         <motion.div
           initial={{ opacity: 0, y: -10 }}
@@ -1204,7 +1471,7 @@ export default function CheckoutPage() {
         </motion.div>
       )}
 
-      {/* Steps */}
+      {/* Step content — animated transitions between steps */}
       <AnimatePresence mode="wait">
         {currentStep === 'shipping' && (
           <ShippingStep

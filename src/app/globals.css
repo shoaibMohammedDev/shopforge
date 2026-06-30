@@ -1,13 +1,75 @@
+/**
+ * globals.css
+ *
+ * Global stylesheet for the ShopForge e-commerce application.
+ * This file defines the design-token system (CSS custom properties) that powers
+ * the entire visual layer — colors, radii, fonts, and component-level tokens
+ * for shadcn/ui. All theme-aware components reference these variables, enabling
+ * seamless light/dark mode switching without any JavaScript color calculations.
+ *
+ * Key Responsibilities:
+ * - Import Tailwind CSS v4 and the tw-animate-css animation library
+ * - Define a custom `dark` variant that matches elements inside `.dark` class
+ * - Map CSS custom properties to Tailwind's `@theme` inline block so utility
+ *   classes like `bg-primary` and `text-muted-foreground` resolve to these tokens
+ * - Provide light-mode (`:root`) and dark-mode (`.dark`) color palettes using
+ *   the OKLCH color space for perceptually uniform brightness across hues
+ * - Set base styles for borders, outlines, and body text color
+ *
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────┐
+ * │  CSS Custom Properties (--background, --primary, …) │  ← Source of truth
+ * │          ↓                                          │
+ * │  @theme inline  (maps --color-X to var(--X))        │  ← Bridge to Tailwind
+ * │          ↓                                          │
+ * │  Tailwind utilities (bg-primary, text-foreground, …)│  ← Consumed in JSX
+ * └─────────────────────────────────────────────────────┘
+ */
+
+/* ─── Framework Imports ─────────────────────────────────────────────── */
+
+/** Tailwind CSS v4 base, components, and utilities */
 @import "tailwindcss";
+
+/** Animation keyframes and utilities for shadcn/ui transitions (collapsible, accordion, etc.) */
 @import "tw-animate-css";
 
+/* ─── Custom Variants ───────────────────────────────────────────────── */
+
+/**
+ * Custom dark-mode variant.
+ * Instead of relying on `prefers-color-scheme`, we check for the `.dark` class
+ * on an ancestor element. This allows next-themes to toggle dark mode via
+ * a class on <html>, giving users explicit control regardless of OS preference.
+ */
 @custom-variant dark (&:is(.dark *));
 
+/* ─── Theme Token Mapping ───────────────────────────────────────────── */
+
+/**
+ * @theme inline — bridges CSS custom properties to Tailwind utility classes.
+ *
+ * Each `--color-*` declaration inside this block tells Tailwind: "when someone
+ * uses the utility `bg-background`, resolve it to the CSS variable `var(--background)`".
+ * The `inline` keyword means these tokens are inlined into the generated CSS
+ * rather than creating separate @layer declarations.
+ *
+ * This is the reason we can write `bg-primary` in JSX and have it resolve
+ * to the correct color in both light and dark modes — the underlying CSS
+ * variable is swapped by the `.dark` selector below.
+ */
 @theme inline {
+  /* ── Core surface colors ── */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+
+  /* ── Font family references ── */
+  /** Sans-serif font tied to the Geist Sans variable set in layout.tsx */
   --font-sans: var(--font-geist-sans);
+  /** Monospace font tied to the Geist Mono variable set in layout.tsx */
   --font-mono: var(--font-geist-mono);
+
+  /* ── Sidebar tokens (used by shadcn/ui Sidebar component) ── */
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -16,60 +78,159 @@
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar: var(--sidebar);
+
+  /* ── Chart color palette (used by Recharts / chart components) ── */
+  /**
+   * Five sequential chart colors designed for visual distinction in data
+   * visualizations. Each color occupies a different hue angle in OKLCH space
+   * to maximize perceptual separation between data series.
+   */
   --color-chart-5: var(--chart-5);
   --color-chart-4: var(--chart-4);
   --color-chart-3: var(--chart-3);
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
+
+  /* ── Component-level design tokens ── */
+  /** Focus ring color — applied to interactive elements on keyboard focus */
   --color-ring: var(--ring);
+  /** Input field border color */
   --color-input: var(--input);
+  /** Default border color for cards, dividers, and separators */
   --color-border: var(--border);
+  /** Destructive action color — used for delete buttons, error states, etc. */
   --color-destructive: var(--destructive);
+  /** Foreground color for accent (highlighted/active) elements */
   --color-accent-foreground: var(--accent-foreground);
+  /** Accent background — subtle highlight for selected/hovered items */
   --color-accent: var(--accent);
+  /** Foreground color for muted/de-emphasized text */
   --color-muted-foreground: var(--muted-foreground);
+  /** Muted background — used for disabled fields, empty states, skeleton loaders */
   --color-muted: var(--muted);
+  /** Foreground color for secondary button/element text */
   --color-secondary-foreground: var(--secondary-foreground);
+  /** Secondary background — alternative to primary, less visually prominent */
   --color-secondary: var(--secondary);
+  /** Foreground color for primary button/element text */
   --color-primary-foreground: var(--primary-foreground);
+  /** Primary brand color — main call-to-action buttons, active indicators */
   --color-primary: var(--primary);
+  /** Foreground color for popover/dropdown text */
   --color-popover-foreground: var(--popover-foreground);
+  /** Popover background — used for dropdowns, tooltips, command palettes */
   --color-popover: var(--popover);
+  /** Foreground color for card text */
   --color-card-foreground: var(--card-foreground);
+  /** Card background — used for product cards, content sections, dialogs */
   --color-card: var(--card);
+
+  /* ── Border radius scale ── */
+  /**
+   * Four radius sizes derived from a single `--radius` base value.
+   * This ensures consistent rounding across all components while allowing
+   * fine-grained control when needed (e.g., small buttons vs. large cards).
+   */
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
+  /** Base radius — all other radii are computed from this value */
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+/* ─── Light Mode (Default) ──────────────────────────────────────────── */
+
+/**
+ * Light mode color palette using the OKLCH color space.
+ *
+ * OKLCH (OK Lightness Chroma Hue) provides perceptually uniform lightness,
+ * meaning a change in lightness by 0.1 looks the same regardless of hue.
+ * This is superior to HSL where perceived brightness varies dramatically
+ * across hues (e.g., yellow at 50% lightness looks much brighter than blue
+ * at 50% lightness).
+ *
+ * Format: oklch(L C H)
+ *   L = Lightness (0 = black, 1 = white)
+ *   C = Chroma (saturation, 0 = gray)
+ *   H = Hue angle (0–360)
+ */
 :root {
+  /** Base border radius for the entire design system (0.625rem = 10px) */
   --radius: 0.625rem;
+
+  /* ── Surface colors (near-white / near-black neutrals) ── */
+  /** Page background — pure white */
   --background: oklch(1 0 0);
+  /** Primary text color — near-black for maximum readability */
   --foreground: oklch(0.145 0 0);
+
+  /* ── Card ── */
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
+
+  /* ── Popover ── */
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
+
+  /* ── Primary (brand color — neutral black in light mode) ── */
+  /** Primary background — very dark, almost black */
   --primary: oklch(0.205 0 0);
+  /** Primary foreground — near-white text on primary backgrounds */
   --primary-foreground: oklch(0.985 0 0);
+
+  /* ── Secondary ── */
+  /** Secondary background — very light gray for subtle backgrounds */
   --secondary: oklch(0.97 0 0);
+  /** Secondary foreground — dark text on secondary backgrounds */
   --secondary-foreground: oklch(0.205 0 0);
+
+  /* ── Muted ── */
+  /** Muted background — light gray for disabled/inactive areas */
   --muted: oklch(0.97 0 0);
+  /** Muted foreground — medium gray for secondary/de-emphasized text */
   --muted-foreground: oklch(0.556 0 0);
+
+  /* ── Accent ── */
+  /** Accent background — same light gray as secondary, used for highlights */
   --accent: oklch(0.97 0 0);
+  /** Accent foreground — dark text on accent backgrounds */
   --accent-foreground: oklch(0.205 0 0);
+
+  /* ── Destructive ── */
+  /**
+   * Destructive color — red with moderate chroma and warm hue.
+   * OKLCH hue 27.325 sits in the orange-red range, which is universally
+   * associated with danger/errors in UI design.
+   */
   --destructive: oklch(0.577 0.245 27.325);
+
+  /* ── Border & Input ── */
+  /** Default border color — light gray that's visible but not distracting */
   --border: oklch(0.922 0 0);
+  /** Input field border — matches border color for visual consistency */
   --input: oklch(0.922 0 0);
+
+  /* ── Focus Ring ── */
+  /** Focus ring color — medium gray that's visible on both light and dark surfaces */
   --ring: oklch(0.708 0 0);
+
+  /* ── Chart palette (light mode) ── */
+  /**
+   * Five distinct chart colors with perceptually spaced hues.
+   * Ordered from warm to cool: orange → teal → indigo → yellow → amber.
+   * The chroma values are calibrated for visibility on a white background.
+   */
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
+
+  /* ── Sidebar tokens (light mode) ── */
+  /** Sidebar background — slightly off-white to distinguish from main content */
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
+  /** Sidebar primary — matches the app primary for active/selected states */
   --sidebar-primary: oklch(0.205 0 0);
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.97 0 0);
@@ -78,44 +239,137 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
+/* ─── Dark Mode ─────────────────────────────────────────────────────── */
+
+/**
+ * Dark mode color palette.
+ *
+ * Key design decisions for dark mode:
+ * - Background uses near-black (0.145) rather than pure black (0) to reduce
+ *   eye strain on OLED screens and provide better contrast with elevated surfaces
+ * - Elevated surfaces (card, popover) use a slightly lighter shade (0.205) to
+ *   create visual depth without harsh contrast jumps
+ * - Primary is inverted to light-on-dark — buttons are light-colored on dark backgrounds
+ * - Border uses a translucent white (10% opacity) for subtle separation that
+ *   adapts to any surface color beneath it
+ * - Chart colors use different hues than light mode, optimized for visibility
+ *   against a dark background
+ */
 .dark {
+  /* ── Surface colors (inverted from light mode) ── */
+  /** Page background — near-black with zero chroma for a neutral dark canvas */
   --background: oklch(0.145 0 0);
+  /** Primary text color — near-white for readability on dark backgrounds */
   --foreground: oklch(0.985 0 0);
+
+  /* ── Card (elevated surface — slightly lighter than background) ── */
   --card: oklch(0.205 0 0);
   --card-foreground: oklch(0.985 0 0);
+
+  /* ── Popover (elevated surface — same as card) ── */
   --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.985 0 0);
+
+  /* ── Primary (inverted — light buttons on dark background) ── */
+  /** Primary background — light gray for high-contrast CTA buttons */
   --primary: oklch(0.922 0 0);
+  /** Primary foreground — dark text on light primary backgrounds */
   --primary-foreground: oklch(0.205 0 0);
+
+  /* ── Secondary ── */
+  /** Secondary background — dark gray for subtle secondary elements */
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
+
+  /* ── Muted ── */
+  /** Muted background — dark gray for disabled/inactive areas */
   --muted: oklch(0.269 0 0);
+  /** Muted foreground — medium gray that's readable but clearly de-emphasized */
   --muted-foreground: oklch(0.708 0 0);
+
+  /* ── Accent ── */
+  /** Accent background — dark gray matching secondary for highlight states */
   --accent: oklch(0.269 0 0);
+  /** Accent foreground — light text on dark accent backgrounds */
   --accent-foreground: oklch(0.985 0 0);
+
+  /* ── Destructive ── */
+  /**
+   * Destructive color — lighter and less saturated than light mode.
+   * In dark mode, colors appear brighter against the dark background,
+   * so we reduce chroma and increase lightness to maintain readability
+   * without being visually overwhelming.
+   */
   --destructive: oklch(0.704 0.191 22.216);
+
+  /* ── Border & Input ── */
+  /**
+   * Translucent white borders (10% and 15% opacity).
+   * Using opacity instead of a fixed gray allows borders to subtly adapt
+   * to whatever surface color is beneath them, creating a more cohesive
+   * appearance across different background shades.
+   */
   --border: oklch(1 0 0 / 10%);
+  /** Input borders use slightly higher opacity (15%) for better visibility */
   --input: oklch(1 0 0 / 15%);
+
+  /* ── Focus Ring ── */
+  /** Focus ring — medium gray that contrasts with both dark surfaces and light text */
   --ring: oklch(0.556 0 0);
+
+  /* ── Chart palette (dark mode) ── */
+  /**
+   * Five chart colors re-optimized for dark backgrounds.
+   * Uses more saturated, brighter colors than the light palette because
+   * dark backgrounds absorb visual weight — colors need more chroma to
+   * achieve the same perceptual contrast. Hues are shifted toward cooler
+   * tones (blues, greens) which tend to perform better on dark surfaces.
+   */
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
+
+  /* ── Sidebar tokens (dark mode) ── */
+  /** Sidebar background — matches the card elevated surface color */
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
+  /** Sidebar primary — uses a blue accent for the active state, matching chart-1 */
   --sidebar-primary: oklch(0.488 0.243 264.376);
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.269 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
+  /** Sidebar border — translucent white matching the main border token */
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* ─── Base Layer Styles ─────────────────────────────────────────────── */
+
+/**
+ * Base layer — applies global defaults to all elements and the body.
+ * Using @layer base ensures these rules have the correct specificity
+ * relative to Tailwind's component and utility layers.
+ */
 @layer base {
+  /**
+   * Global border and outline defaults.
+   * - `border-border` ensures all elements inherit the theme border color,
+   *   so you don't need to explicitly set `border-border` on every element.
+   * - `outline-ring/50` provides a semi-transparent focus ring color that
+   *   is visible but not overwhelming during keyboard navigation.
+   */
   * {
     @apply border-border outline-ring/50;
   }
+
+  /**
+   * Body base styles.
+   * Explicitly setting `bg-background` and `text-foreground` on the body
+   * ensures the theme colors are applied even before React hydrates,
+   * preventing a flash of unstyled content (FOUC) during initial load.
+   */
   body {
     @apply bg-background text-foreground;
   }

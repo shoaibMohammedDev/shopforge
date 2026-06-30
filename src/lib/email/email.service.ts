@@ -1,30 +1,66 @@
-// ============================================================================
-// ShopForge - Email Service
-// Abstraction layer for email delivery with Resend
-// Falls back to logging when API key is not configured
-// ============================================================================
+/**
+ * @file email/email.service.ts
+ * @description Transactional email delivery service for ShopForge.
+ *   Provides a high-level API for sending order confirmations, status updates,
+ *   and welcome emails. Uses **Resend** as the email provider when an API key
+ *   is configured; otherwise falls back to a mock mode that logs email
+ *   content to the console — ideal for local development and CI.
+ *
+ * Key Responsibilities:
+ *   - Abstract the email provider behind a simple `send()` method
+ *   - Render HTML email templates for common transactional flows
+ *   - Gracefully degrade to mock mode when Resend is unavailable
+ *   - Measure and log delivery latency via the structured logger
+ */
 
 import { appConfig } from '@/lib/config'
 import { emailLogger } from '@/lib/logger'
 
+/**
+ * Data transfer object for sending a single email.
+ * Maps to the Resend `emails.send` payload.
+ */
 export interface SendEmailDTO {
+  /** Recipient address(es). Resend accepts a single string or an array. */
   to: string | string[]
+  /** Email subject line. */
   subject: string
+  /** Full HTML body of the email. */
   html: string
+  /** Optional plain-text fallback for clients that don't render HTML. */
   text?: string
+  /** Override the default "From" address. */
   from?: string
 }
 
+/**
+ * Typed data bag consumed by the template-rendering methods.
+ * Each template picks the fields it needs; unused fields are safely ignored.
+ */
 export interface EmailTemplateData {
+  /** Customer's display name for the greeting. */
   userName?: string
+  /** Unique order identifier (e.g. "ORD-2024-001"). */
   orderNumber?: string
+  /** Current order status label (e.g. "Shipped", "Delivered"). */
   orderStatus?: string
+  /** Order total in the store's currency. */
   totalAmount?: number
+  /** Line items to display in the confirmation table. */
   items?: Array<{ name: string; quantity: number; price: number }>
+  /** URL for the "Track Your Order" button in status-update emails. */
   trackingUrl?: string
 }
 
+/**
+ * EmailService — manages email delivery and template rendering.
+ *
+ * On construction it checks whether a Resend API key is available and sets
+ * `isConfigured` accordingly. All public methods branch on this flag so that
+ * the application never crashes due to a missing email provider.
+ */
 class EmailService {
+  /** `true` when a Resend API key is present and the package is importable. */
   private isConfigured: boolean = false
 
   constructor() {
@@ -37,12 +73,23 @@ class EmailService {
   }
 
   /**
-   * Send an email
+   * Send an email using the configured provider.
+   *
+   * When `isConfigured` is `false`, the email payload is logged instead of
+   * being sent, and a mock `messageId` is returned. This ensures that
+   * development and test environments never depend on an external service.
+   *
+   * The Resend SDK is imported dynamically so the application doesn't crash
+   * if the package is not installed — it simply falls back to mock mode.
+   *
+   * @param dto - The email payload (recipient, subject, HTML body, etc.).
+   * @returns An object indicating success and (optionally) the provider's message ID.
    */
   async send(dto: SendEmailDTO): Promise<{ success: boolean; messageId?: string }> {
     const from = dto.from || appConfig.email.from
 
     if (!this.isConfigured) {
+      // Mock mode: log the email instead of sending it
       emailLogger.info('Email (mock)', {
         to: dto.to,
         from,
@@ -59,7 +106,7 @@ class EmailService {
         try {
           resendModule = await import('resend')
         } catch {
-          // Package not installed
+          // Package not installed — silently fall back to mock
         }
         if (!resendModule) {
           emailLogger.warn('Resend package not available, falling back to mock')
@@ -92,7 +139,12 @@ class EmailService {
   }
 
   /**
-   * Send order confirmation email
+   * Send an order confirmation email to the customer.
+   *
+   * Renders a styled HTML receipt listing all purchased items, the order
+   * total, and a note about the upcoming shipping notification.
+   *
+   * @param data - Template data including order number, items, and total.
    */
   async sendOrderConfirmation(data: EmailTemplateData): Promise<void> {
     await this.send({
@@ -103,7 +155,12 @@ class EmailService {
   }
 
   /**
-   * Send order status update email
+   * Send an order status update email to the customer.
+   *
+   * Displays the new status and, when a tracking URL is provided, includes
+   * a CTA button to track the shipment.
+   *
+   * @param data - Template data including order number and new status.
    */
   async sendOrderStatusUpdate(data: EmailTemplateData): Promise<void> {
     await this.send({
@@ -114,7 +171,12 @@ class EmailService {
   }
 
   /**
-   * Send welcome email to new users
+   * Send a welcome email to a newly registered user.
+   *
+   * Includes a CTA button linking to the storefront so the customer can
+   * start browsing immediately after account creation.
+   *
+   * @param data - Template data including the user's name.
    */
   async sendWelcome(data: EmailTemplateData): Promise<void> {
     await this.send({
@@ -126,6 +188,18 @@ class EmailService {
 
   // ---- Email Template Renderers ----
 
+  /**
+   * Render the order confirmation HTML template.
+   *
+   * Produces a responsive, system-font email with:
+   * - Personalised greeting
+   * - Order number and total
+   * - Itemised table (name, quantity, price)
+   * - Shipping notification teaser
+   *
+   * @param data - Template data for the confirmation email.
+   * @returns A complete HTML string ready for the email body.
+   */
   private renderOrderConfirmation(data: EmailTemplateData): string {
     return `
       <div style="font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -142,6 +216,15 @@ class EmailService {
     `
   }
 
+  /**
+   * Render the order status update HTML template.
+   *
+   * Displays the new status prominently and, when a tracking URL is
+   * available, renders a CTA button for shipment tracking.
+   *
+   * @param data - Template data for the status-update email.
+   * @returns A complete HTML string ready for the email body.
+   */
   private renderStatusUpdate(data: EmailTemplateData): string {
     return `
       <div style="font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -153,6 +236,15 @@ class EmailService {
     `
   }
 
+  /**
+   * Render the welcome email HTML template.
+   *
+   * Greets the new user by name and provides a CTA button that
+   * navigates directly to the storefront.
+   *
+   * @param data - Template data for the welcome email.
+   * @returns A complete HTML string ready for the email body.
+   */
   private renderWelcome(data: EmailTemplateData): string {
     return `
       <div style="font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -165,4 +257,5 @@ class EmailService {
   }
 }
 
+/** Singleton EmailService instance used throughout the application. */
 export const emailService = new EmailService()

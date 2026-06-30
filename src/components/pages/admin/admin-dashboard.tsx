@@ -1,3 +1,19 @@
+/**
+ * @file admin-dashboard.tsx
+ * @description Admin dashboard content component for the ShopForge e-commerce
+ * admin panel. Displays key business metrics (revenue, orders, customers,
+ * products), revenue trend chart, order status distribution pie chart,
+ * recent orders table, and top products list.
+ *
+ * @keyfeatures
+ * - Four stat cards with trend indicators (up/down vs last month)
+ * - Revenue area chart (last 6 months) using Recharts
+ * - Order status distribution donut chart using Recharts
+ * - Recent orders table with status badges
+ * - Top products list with rank, image, units sold, and revenue
+ * - Loading skeletons and error states
+ * - Data fetched from /api/admin?action=stats on mount
+ */
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -51,10 +67,28 @@ import { formatCurrency, formatDate, StatusBadge, PIE_COLORS } from './admin-pag
 // AdminDashboardContent
 // ============================================================================
 
+/**
+ * @function AdminDashboardContent
+ * @description Admin dashboard content that displays an overview of the store's
+ * key metrics, charts, and recent activity. Fetches admin stats from the API
+ * on mount and renders stat cards, charts, tables, and product lists.
+ *
+ * @state
+ * - `stats` - AdminStats object fetched from the API, contains all dashboard data
+ * - `loading` - boolean indicating whether the stats data is being fetched
+ *
+ * @remarks
+ * - Shows skeleton placeholders while loading
+ * - Shows an error card if stats fail to load
+ * - Revenue chart uses a gradient fill area chart
+ * - Order status chart uses a donut (pie with inner radius) chart
+ * - Stats cards show percentage change vs last month with trend arrows
+ */
 export function AdminDashboardContent() {
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [loading, setLoading] = useState(true)
 
+  // Fetch admin dashboard statistics on component mount
   useEffect(() => {
     async function fetchStats() {
       try {
@@ -71,10 +105,12 @@ export function AdminDashboardContent() {
     fetchStats()
   }, [])
 
+  // Chart configuration for the revenue area chart
   const revenueChartConfig: ChartConfig = {
     revenue: { label: 'Revenue', color: '#22c55e' },
   }
 
+  // Chart configuration for the order status pie chart with color mapping
   const orderStatusChartConfig: ChartConfig = {
     count: { label: 'Orders' },
     PENDING: { label: 'Pending', color: '#f59e0b' },
@@ -85,6 +121,7 @@ export function AdminDashboardContent() {
     CANCELLED: { label: 'Cancelled', color: '#ef4444' },
   }
 
+  // Loading state: skeleton placeholders matching the dashboard layout
   if (loading) {
     return (
       <>
@@ -101,6 +138,7 @@ export function AdminDashboardContent() {
     )
   }
 
+  // Error state: show warning card if stats couldn't be loaded
   if (!stats) {
     return (
       <>
@@ -115,6 +153,7 @@ export function AdminDashboardContent() {
     )
   }
 
+  // Stat cards configuration: each card shows a metric with trend indicator
   const statCards = [
     {
       title: 'Revenue',
@@ -146,7 +185,7 @@ export function AdminDashboardContent() {
     {
       title: 'Products',
       value: stats.totalProducts.toLocaleString(),
-      change: 0,
+      change: 0, // Products count doesn't track monthly change
       icon: Package,
       bgColor: 'bg-orange-50',
       iconColor: 'text-orange-600',
@@ -156,7 +195,7 @@ export function AdminDashboardContent() {
 
   return (
     <>
-      {/* Stat cards */}
+      {/* Stat Cards - four metric cards in a responsive grid */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {statCards.map((card) => (
           <Card key={card.title} className="relative overflow-hidden">
@@ -165,6 +204,7 @@ export function AdminDashboardContent() {
                 <div>
                   <p className="text-sm font-medium text-gray-500">{card.title}</p>
                   <p className="mt-1 text-2xl font-bold text-gray-900">{card.value}</p>
+                  {/* Trend indicator with up/down arrow and percentage change */}
                   <div className="mt-2 flex items-center gap-1">
                     {card.change > 0 ? (
                       <TrendingUp className={`h-3.5 w-3.5 ${card.changeColor}`} />
@@ -178,6 +218,7 @@ export function AdminDashboardContent() {
                     <span className="text-xs text-gray-400">vs last month</span>
                   </div>
                 </div>
+                {/* Metric icon with colored background */}
                 <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${card.bgColor}`}>
                   <card.icon className={`h-6 w-6 ${card.iconColor}`} />
                 </div>
@@ -187,9 +228,9 @@ export function AdminDashboardContent() {
         ))}
       </div>
 
-      {/* Charts */}
+      {/* Charts Section - revenue area chart and order status pie chart */}
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        {/* Revenue chart */}
+        {/* Revenue Overview Area Chart - last 6 months trend */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Revenue Overview</CardTitle>
@@ -198,6 +239,7 @@ export function AdminDashboardContent() {
           <CardContent>
             <ChartContainer config={revenueChartConfig} className="h-64 w-full">
               <AreaChart data={stats.salesByMonth} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                {/* Gradient fill for the area under the curve */}
                 <defs>
                   <linearGradient id="fillRevenue" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
@@ -206,6 +248,7 @@ export function AdminDashboardContent() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="month" tickLine={false} axisLine={false} fontSize={12} />
+                {/* Y-axis formatted as thousands (e.g. "$1.2k") */}
                 <YAxis tickLine={false} axisLine={false} fontSize={12} tickFormatter={(v: number) => `$${(v / 1000).toFixed(1)}k`} />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 <Area
@@ -221,7 +264,7 @@ export function AdminDashboardContent() {
           </CardContent>
         </Card>
 
-        {/* Orders by status pie */}
+        {/* Orders by Status Donut Chart - current distribution of order statuses */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Orders by Status</CardTitle>
@@ -231,6 +274,7 @@ export function AdminDashboardContent() {
             <ChartContainer config={orderStatusChartConfig} className="h-64 w-full">
               <PieChart>
                 <ChartTooltip content={<ChartTooltipContent nameKey="status" />} />
+                {/* Donut chart with inner radius for a modern look */}
                 <Pie
                   data={stats.ordersByStatus}
                   cx="50%"
@@ -247,6 +291,7 @@ export function AdminDashboardContent() {
                 </Pie>
               </PieChart>
             </ChartContainer>
+            {/* Legend showing color swatches and status labels with counts */}
             <div className="mt-2 flex flex-wrap justify-center gap-3">
               {stats.ordersByStatus.map((item, i) => (
                 <div key={item.status} className="flex items-center gap-1.5 text-xs">
@@ -263,9 +308,9 @@ export function AdminDashboardContent() {
         </Card>
       </div>
 
-      {/* Recent Orders + Top Products */}
+      {/* Recent Orders + Top Products - side-by-side cards */}
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        {/* Recent Orders */}
+        {/* Recent Orders Table - last 10 orders with status and total */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Recent Orders</CardTitle>
@@ -310,7 +355,7 @@ export function AdminDashboardContent() {
           </CardContent>
         </Card>
 
-        {/* Top Products */}
+        {/* Top Products List - ranked by units sold with revenue */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Top Products</CardTitle>
@@ -321,12 +366,15 @@ export function AdminDashboardContent() {
             ) : (
               <div className="space-y-4">
                 {stats.topProducts.map((tp, idx) => {
+                  // Parse product images from JSON string
                   const images: string[] = tp.product.images ? JSON.parse(tp.product.images) : []
                   return (
                     <div key={tp.product.id} className="flex items-center gap-4">
+                      {/* Rank number */}
                       <span className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-sm font-bold text-gray-600">
                         {idx + 1}
                       </span>
+                      {/* Product thumbnail or placeholder icon */}
                       {images[0] ? (
                         <img
                           src={images[0]}
@@ -338,12 +386,14 @@ export function AdminDashboardContent() {
                           <Package className="h-5 w-5 text-gray-400" />
                         </div>
                       )}
+                      {/* Product name and units sold */}
                       <div className="flex-1 min-w-0">
                         <p className="truncate text-sm font-medium text-gray-900">
                           {tp.product.name}
                         </p>
                         <p className="text-xs text-gray-500">{tp.totalSold} units sold</p>
                       </div>
+                      {/* Product revenue */}
                       <p className="text-sm font-semibold text-gray-900">
                         {formatCurrency(tp.revenue)}
                       </p>

@@ -1,3 +1,22 @@
+/**
+ * @file auth-pages.tsx
+ * @description Authentication page components for the ShopForge e-commerce application.
+ * Provides both Login and Register forms with validation, API integration,
+ * and animated transitions for a polished authentication experience.
+ *
+ * @keyfeatures
+ * - Login form with email/password authentication and "Remember me" option
+ * - Register form with name, email, password, and confirm password fields
+ * - Zod schema validation with react-hook-form integration
+ * - Password visibility toggle (show/hide) for all password fields
+ * - API authentication via /auth endpoint with login/register action differentiation
+ * - Toast notifications for success and error states
+ * - Social login placeholder (Google — coming soon, disabled)
+ * - Cross-navigation between login and register pages
+ * - Framer Motion fade-in-up entrance animations
+ * - Responsive centered card layout with ShopForge branding
+ */
+
 'use client'
 
 import { useState } from 'react'
@@ -39,14 +58,25 @@ import { Separator } from '@/components/ui/separator'
 // Validation Schemas
 // ============================================================================
 
+/**
+ * Zod validation schema for the login form.
+ * Requires a valid email and a non-empty password.
+ * The "rememberMe" checkbox is optional and defaults to false.
+ */
 const loginSchema = z.object({
   email: z.email('Please enter a valid email address'),
   password: z.string().min(1, 'Password is required'),
   rememberMe: z.boolean().optional(),
 })
 
+/** Inferred TypeScript type from the login Zod schema */
 type LoginFormValues = z.infer<typeof loginSchema>
 
+/**
+ * Zod validation schema for the registration form.
+ * Validates name (min 2 chars), email, password (min 8 chars),
+ * and password confirmation. Uses a refine() to ensure passwords match.
+ */
 const registerSchema = z
   .object({
     name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -59,12 +89,17 @@ const registerSchema = z
     path: ['confirmPassword'],
   })
 
+/** Inferred TypeScript type from the register Zod schema */
 type RegisterFormValues = z.infer<typeof registerSchema>
 
 // ============================================================================
 // Animations
 // ============================================================================
 
+/**
+ * Shared Framer Motion animation variant for the auth card entrance.
+ * Applies a fade-in with upward slide for a smooth page transition effect.
+ */
 const fadeInUp = {
   initial: { opacity: 0, y: 20 },
   animate: { opacity: 1, y: 0 },
@@ -75,12 +110,28 @@ const fadeInUp = {
 // LoginPage
 // ============================================================================
 
+/**
+ * LoginPage renders the sign-in form for existing users.
+ * Provides email/password authentication with optional "Remember me",
+ * a password visibility toggle, and a placeholder Google social login button.
+ * On successful login, the user profile is stored in the auth store and
+ * the user is redirected to the home page.
+ *
+ * @state showPassword - Controls password field visibility toggle (text vs. password input)
+ * @state isLoading    - Whether the login API request is currently in flight
+ *
+ * @store login   - Auth store action to save the authenticated user profile
+ * @store navigate - Router store action for page navigation
+ */
 export function LoginPage() {
   const navigate = useRouterStore((s) => s.navigate)
   const login = useAuthStore((s) => s.login)
+  /** Toggle between masked and visible password input */
   const [showPassword, setShowPassword] = useState(false)
+  /** Loading state during the authentication API call */
   const [isLoading, setIsLoading] = useState(false)
 
+  // Initialize the login form with Zod resolver and default values
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
@@ -90,9 +141,19 @@ export function LoginPage() {
     },
   })
 
+  /**
+   * Handles login form submission.
+   * Sends credentials to the /auth API endpoint with a "login" action.
+   * On success, stores the user profile in the auth store, shows a welcome toast,
+   * and navigates to the home page. On failure, displays an error toast.
+   *
+   * @param values - Validated form values containing email, password, and rememberMe
+   */
   const onSubmit = async (values: LoginFormValues) => {
+    // Set loading state
     setIsLoading(true)
     try {
+      // Call the authentication API with login action
       const result = await api.post<{ user: UserProfile }>('/auth', {
         action: 'login',
         email: values.email,
@@ -100,6 +161,7 @@ export function LoginPage() {
       })
 
       if (result.success && result.data) {
+        // Login successful — store user profile and navigate home
         login(result.data.user)
         toast({
           title: 'Welcome back!',
@@ -107,6 +169,7 @@ export function LoginPage() {
         })
         navigate('home')
       } else {
+        // API returned a failure — display the error message
         toast({
           title: 'Login failed',
           description: result.error || 'Invalid email or password',
@@ -114,21 +177,26 @@ export function LoginPage() {
         })
       }
     } catch {
+      // Network or unexpected error
       toast({
         title: 'Login failed',
         description: 'An unexpected error occurred. Please try again.',
         variant: 'destructive',
       })
     } finally {
+      // Always clear loading state
       setIsLoading(false)
     }
   }
 
   return (
+    /* Full-height centered container for the login card */
     <div className="min-h-[calc(100vh-8rem)] flex items-center justify-center px-4 py-12">
       <motion.div {...fadeInUp} className="w-full max-w-md">
         <Card className="border shadow-lg">
+          {/* Card header with ShopForge branding and welcome message */}
           <CardHeader className="text-center space-y-4 pb-6">
+            {/* ShopForge logo and brand name */}
             <div className="flex justify-center">
               <div className="flex items-center gap-2 text-primary">
                 <ShoppingBag className="size-8" />
@@ -145,7 +213,7 @@ export function LoginPage() {
 
           <CardContent className="space-y-4">
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              {/* Email */}
+              {/* Email input field with envelope icon */}
               <div className="space-y-2">
                 <Label htmlFor="login-email">Email</Label>
                 <div className="relative">
@@ -158,6 +226,7 @@ export function LoginPage() {
                     {...form.register('email')}
                   />
                 </div>
+                {/* Email validation error message */}
                 {form.formState.errors.email && (
                   <p className="text-sm text-destructive">
                     {form.formState.errors.email.message}
@@ -165,7 +234,7 @@ export function LoginPage() {
                 )}
               </div>
 
-              {/* Password */}
+              {/* Password input field with lock icon and visibility toggle */}
               <div className="space-y-2">
                 <Label htmlFor="login-password">Password</Label>
                 <div className="relative">
@@ -177,6 +246,7 @@ export function LoginPage() {
                     className="pl-9 pr-9"
                     {...form.register('password')}
                   />
+                  {/* Toggle button to show/hide password characters */}
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
@@ -190,6 +260,7 @@ export function LoginPage() {
                     )}
                   </button>
                 </div>
+                {/* Password validation error message */}
                 {form.formState.errors.password && (
                   <p className="text-sm text-destructive">
                     {form.formState.errors.password.message}
@@ -197,7 +268,7 @@ export function LoginPage() {
                 )}
               </div>
 
-              {/* Remember Me & Forgot Password */}
+              {/* Remember me checkbox and forgot password link */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <Checkbox
@@ -213,6 +284,7 @@ export function LoginPage() {
                     Remember me
                   </Label>
                 </div>
+                {/* Forgot password link — placeholder for future functionality */}
                 <button
                   type="button"
                   className="text-sm text-muted-foreground hover:text-primary transition-colors"
@@ -221,7 +293,7 @@ export function LoginPage() {
                 </button>
               </div>
 
-              {/* Login Button */}
+              {/* Login submit button — shows spinner while loading */}
               <Button
                 type="submit"
                 className="w-full"
@@ -238,7 +310,7 @@ export function LoginPage() {
               </Button>
             </form>
 
-            {/* Divider */}
+            {/* Divider with "OR CONTINUE WITH" text */}
             <div className="relative">
               <Separator />
               <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-card px-2 text-xs text-muted-foreground">
@@ -246,7 +318,7 @@ export function LoginPage() {
               </span>
             </div>
 
-            {/* Social Login */}
+            {/* Social login button — Google (disabled, coming soon) */}
             <Button
               variant="outline"
               className="w-full"
@@ -258,6 +330,7 @@ export function LoginPage() {
             </Button>
           </CardContent>
 
+          {/* Footer with link to register page */}
           <CardFooter className="justify-center pb-6">
             <p className="text-sm text-muted-foreground">
               Don&apos;t have an account?{' '}
@@ -280,13 +353,31 @@ export function LoginPage() {
 // RegisterPage
 // ============================================================================
 
+/**
+ * RegisterPage renders the sign-up form for new users.
+ * Collects name, email, password, and password confirmation with validation.
+ * Includes individual password visibility toggles for both password fields.
+ * On successful registration, the user is automatically logged in and
+ * redirected to the home page.
+ *
+ * @state showPassword        - Controls visibility toggle for the password field
+ * @state showConfirmPassword - Controls visibility toggle for the confirm password field
+ * @state isLoading           - Whether the registration API request is currently in flight
+ *
+ * @store login    - Auth store action to save the authenticated user profile (auto-login after register)
+ * @store navigate - Router store action for page navigation
+ */
 export function RegisterPage() {
   const navigate = useRouterStore((s) => s.navigate)
   const login = useAuthStore((s) => s.login)
+  /** Toggle between masked and visible password input */
   const [showPassword, setShowPassword] = useState(false)
+  /** Toggle between masked and visible confirm password input */
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  /** Loading state during the registration API call */
   const [isLoading, setIsLoading] = useState(false)
 
+  // Initialize the register form with Zod resolver and default values
   const form = useForm<RegisterFormValues>({
     resolver: zodResolver(registerSchema),
     defaultValues: {
@@ -297,9 +388,20 @@ export function RegisterPage() {
     },
   })
 
+  /**
+   * Handles registration form submission.
+   * Sends the user's name, email, and password to the /auth API endpoint
+   * with a "register" action. On success, automatically logs the user in
+   * (stores profile in auth store), shows a welcome toast, and navigates
+   * to the home page. On failure, displays an error toast.
+   *
+   * @param values - Validated form values containing name, email, password, and confirmPassword
+   */
   const onSubmit = async (values: RegisterFormValues) => {
+    // Set loading state
     setIsLoading(true)
     try {
+      // Call the authentication API with register action
       const result = await api.post<{ user: UserProfile }>('/auth', {
         action: 'register',
         email: values.email,
@@ -308,6 +410,7 @@ export function RegisterPage() {
       })
 
       if (result.success && result.data) {
+        // Registration successful — auto-login and navigate home
         login(result.data.user)
         toast({
           title: 'Account created!',
@@ -315,6 +418,7 @@ export function RegisterPage() {
         })
         navigate('home')
       } else {
+        // API returned a failure — display the error message
         toast({
           title: 'Registration failed',
           description: result.error || 'Could not create account',
@@ -322,21 +426,26 @@ export function RegisterPage() {
         })
       }
     } catch {
+      // Network or unexpected error
       toast({
         title: 'Registration failed',
         description: 'An unexpected error occurred. Please try again.',
         variant: 'destructive',
       })
     } finally {
+      // Always clear loading state
       setIsLoading(false)
     }
   }
 
   return (
+    /* Full-height centered container for the register card */
     <div className="min-h-[calc(100vh-8rem)] flex items-center justify-center px-4 py-12">
       <motion.div {...fadeInUp} className="w-full max-w-md">
         <Card className="border shadow-lg">
+          {/* Card header with ShopForge branding and create account message */}
           <CardHeader className="text-center space-y-4 pb-6">
+            {/* ShopForge logo and brand name */}
             <div className="flex justify-center">
               <div className="flex items-center gap-2 text-primary">
                 <ShoppingBag className="size-8" />
@@ -353,7 +462,7 @@ export function RegisterPage() {
 
           <CardContent className="space-y-4">
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              {/* Name */}
+              {/* Full name input field with user icon */}
               <div className="space-y-2">
                 <Label htmlFor="register-name">Full Name</Label>
                 <div className="relative">
@@ -366,6 +475,7 @@ export function RegisterPage() {
                     {...form.register('name')}
                   />
                 </div>
+                {/* Name validation error message */}
                 {form.formState.errors.name && (
                   <p className="text-sm text-destructive">
                     {form.formState.errors.name.message}
@@ -373,7 +483,7 @@ export function RegisterPage() {
                 )}
               </div>
 
-              {/* Email */}
+              {/* Email input field with envelope icon */}
               <div className="space-y-2">
                 <Label htmlFor="register-email">Email</Label>
                 <div className="relative">
@@ -386,6 +496,7 @@ export function RegisterPage() {
                     {...form.register('email')}
                   />
                 </div>
+                {/* Email validation error message */}
                 {form.formState.errors.email && (
                   <p className="text-sm text-destructive">
                     {form.formState.errors.email.message}
@@ -393,7 +504,7 @@ export function RegisterPage() {
                 )}
               </div>
 
-              {/* Password */}
+              {/* Password input field with lock icon and visibility toggle */}
               <div className="space-y-2">
                 <Label htmlFor="register-password">Password</Label>
                 <div className="relative">
@@ -405,6 +516,7 @@ export function RegisterPage() {
                     className="pl-9 pr-9"
                     {...form.register('password')}
                   />
+                  {/* Toggle button to show/hide password characters */}
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
@@ -418,6 +530,7 @@ export function RegisterPage() {
                     )}
                   </button>
                 </div>
+                {/* Password validation error message */}
                 {form.formState.errors.password && (
                   <p className="text-sm text-destructive">
                     {form.formState.errors.password.message}
@@ -425,7 +538,7 @@ export function RegisterPage() {
                 )}
               </div>
 
-              {/* Confirm Password */}
+              {/* Confirm password field with lock icon and visibility toggle */}
               <div className="space-y-2">
                 <Label htmlFor="register-confirm-password">
                   Confirm Password
@@ -439,6 +552,7 @@ export function RegisterPage() {
                     className="pl-9 pr-9"
                     {...form.register('confirmPassword')}
                   />
+                  {/* Toggle button to show/hide confirm password characters */}
                   <button
                     type="button"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
@@ -452,6 +566,7 @@ export function RegisterPage() {
                     )}
                   </button>
                 </div>
+                {/* Confirm password validation error message (includes mismatch check) */}
                 {form.formState.errors.confirmPassword && (
                   <p className="text-sm text-destructive">
                     {form.formState.errors.confirmPassword.message}
@@ -459,7 +574,7 @@ export function RegisterPage() {
                 )}
               </div>
 
-              {/* Register Button */}
+              {/* Register submit button — shows spinner while loading */}
               <Button
                 type="submit"
                 className="w-full"
@@ -477,6 +592,7 @@ export function RegisterPage() {
             </form>
           </CardContent>
 
+          {/* Footer with link to login page for existing users */}
           <CardFooter className="justify-center pb-6">
             <p className="text-sm text-muted-foreground">
               Already have an account?{' '}

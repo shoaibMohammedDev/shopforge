@@ -1,3 +1,19 @@
+/**
+ * @file admin-orders.tsx
+ * @description Order management page for the ShopForge admin panel. Provides
+ * a filterable table of all orders with status tabs, and an update status
+ * dialog for changing order statuses. Includes a dropdown menu for each
+ * order row with View Details and Update Status actions.
+ *
+ * @keyfeatures
+ * - Status filter tabs (ALL, PENDING, PAID, PROCESSING, SHIPPED, DELIVERED, CANCELLED)
+ * - Orders table with customer info, item count, total, and status badge
+ * - View order details navigation via dropdown menu
+ * - Update order status dialog with Select dropdown
+ * - Server-side filtering by status via query parameter
+ * - Loading skeletons and empty state handling
+ * - Status changes trigger a refetch of the filtered order list
+ */
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
@@ -51,6 +67,21 @@ import { formatCurrency, formatDate, StatusBadge } from './admin-page'
 // AdminOrdersContent
 // ============================================================================
 
+/**
+ * @interface AdminOrder
+ * @description Represents an order as returned by the admin API for the
+ * orders management table. Includes customer info, item count, payment
+ * details, and the order's current status.
+ *
+ * @property {string} id - Unique order identifier
+ * @property {string} orderNumber - Human-readable order number
+ * @property {string} status - Current order status
+ * @property {number} totalAmount - Final total for the order
+ * @property {string} createdAt - ISO 8601 creation timestamp
+ * @property {{ id: string; name: string | null; email: string } | null} user - The ordering user, or null for guest checkouts
+ * @property {{ id: string; productName: string; quantity: number; total: number }[]} items - Order line items
+ * @property {{ status: string; method: string } | null} payment - Payment information
+ */
 interface AdminOrder {
   id: string
   orderNumber: string
@@ -62,6 +93,25 @@ interface AdminOrder {
   payment: { status: string; method: string } | null
 }
 
+/**
+ * @function AdminOrdersContent
+ * @description Order management content for the admin panel. Displays a
+ * filterable table of orders with status tabs and provides a dialog for
+ * updating order statuses.
+ *
+ * @state
+ * - `orders` - array of AdminOrder fetched from the API (optionally filtered by status)
+ * - `loading` - boolean for data fetch state
+ * - `activeTab` - currently selected status filter tab
+ * - `statusDialogOrder` - the order currently selected for status update (null when dialog is closed)
+ * - `newStatus` - the new status value selected in the update dialog
+ * - `saving` - boolean for the status update API call loading state
+ *
+ * @remarks
+ * - Tab changes trigger a refetch with the selected status as a query parameter
+ * - The update status dialog pre-populates with the order's current status
+ * - Submit button is disabled when the new status matches the current status
+ */
 export function AdminOrdersContent() {
   const { navigate } = useRouterStore()
   const [orders, setOrders] = useState<AdminOrder[]>([])
@@ -71,6 +121,12 @@ export function AdminOrdersContent() {
   const [newStatus, setNewStatus] = useState('')
   const [saving, setSaving] = useState(false)
 
+  /**
+   * Fetches orders from the admin API, optionally filtered by status.
+   * When status is 'ALL', fetches all orders without a status filter.
+   *
+   * @param {string} [status] - Optional status filter (e.g. 'PENDING', 'SHIPPED')
+   */
   const fetchOrders = useCallback(async (status?: string) => {
     setLoading(true)
     try {
@@ -88,10 +144,16 @@ export function AdminOrdersContent() {
     }
   }, [])
 
+  // Refetch orders whenever the active filter tab changes
   useEffect(() => {
     fetchOrders(activeTab)
   }, [activeTab, fetchOrders])
 
+  /**
+   * Handles updating an order's status via the admin API. Sends a PUT
+   * request with the new status, closes the dialog on success, and
+   * refreshes the order list for the current filter tab.
+   */
   async function handleUpdateStatus() {
     if (!statusDialogOrder || !newStatus) return
     setSaving(true)
@@ -116,11 +178,12 @@ export function AdminOrdersContent() {
     }
   }
 
+  // Available order status filter tabs
   const orderStatuses = ['ALL', 'PENDING', 'PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED']
 
   return (
     <>
-      {/* Filter tabs */}
+      {/* Filter Tabs - horizontally scrollable status filter buttons */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
         <TabsList className="flex-wrap h-auto gap-1">
           {orderStatuses.map((status) => (
@@ -131,10 +194,11 @@ export function AdminOrdersContent() {
         </TabsList>
       </Tabs>
 
-      {/* Orders table */}
+      {/* Orders Table */}
       <Card>
         <CardContent className="p-0">
           {loading ? (
+            /* Loading state: skeleton placeholders */
             <div className="p-6 space-y-4">
               {Array.from({ length: 5 }).map((_, i) => (
                 <Skeleton key={i} className="h-12 w-full" />
@@ -146,15 +210,18 @@ export function AdminOrdersContent() {
                 <TableRow>
                   <TableHead>Order #</TableHead>
                   <TableHead>Customer</TableHead>
+                  {/* Items column - hidden on small screens */}
                   <TableHead className="hidden md:table-cell">Items</TableHead>
                   <TableHead>Total</TableHead>
                   <TableHead>Status</TableHead>
+                  {/* Date column - hidden on extra-small screens */}
                   <TableHead className="hidden sm:table-cell">Date</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {orders.length === 0 ? (
+                  /* Empty state: no orders found for the current filter */
                   <TableRow>
                     <TableCell colSpan={7} className="text-center text-gray-500 py-8">
                       No orders found
@@ -163,24 +230,31 @@ export function AdminOrdersContent() {
                 ) : (
                   orders.map((order) => (
                     <TableRow key={order.id}>
+                      {/* Order number */}
                       <TableCell className="font-medium text-sm">
                         #{order.orderNumber}
                       </TableCell>
+                      {/* Customer name or email, fallback to "Guest" */}
                       <TableCell className="text-sm">
                         {order.user?.name || order.user?.email || 'Guest'}
                       </TableCell>
+                      {/* Item count */}
                       <TableCell className="hidden md:table-cell text-sm text-gray-500">
                         {order.items.length} item{order.items.length !== 1 ? 's' : ''}
                       </TableCell>
+                      {/* Order total */}
                       <TableCell className="text-sm font-medium">
                         {formatCurrency(order.totalAmount)}
                       </TableCell>
+                      {/* Status badge */}
                       <TableCell>
                         <StatusBadge status={order.status} />
                       </TableCell>
+                      {/* Order date */}
                       <TableCell className="hidden sm:table-cell text-sm text-gray-500">
                         {formatDate(order.createdAt)}
                       </TableCell>
+                      {/* Action dropdown menu */}
                       <TableCell className="text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -189,12 +263,14 @@ export function AdminOrdersContent() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            {/* View order detail page */}
                             <DropdownMenuItem
                               onClick={() => navigate('account-order-detail', { id: order.id })}
                             >
                               <Eye className="mr-2 h-4 w-4" />
                               View Details
                             </DropdownMenuItem>
+                            {/* Open the update status dialog */}
                             <DropdownMenuItem
                               onClick={() => {
                                 setStatusDialogOrder(order)
@@ -216,7 +292,7 @@ export function AdminOrdersContent() {
         </CardContent>
       </Card>
 
-      {/* Update Status Dialog */}
+      {/* Update Status Dialog - select dropdown for choosing a new order status */}
       <Dialog open={!!statusDialogOrder} onOpenChange={(open) => !open && setStatusDialogOrder(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -227,6 +303,7 @@ export function AdminOrdersContent() {
           </DialogHeader>
           <div className="py-4">
             <Label htmlFor="order-status">New Status</Label>
+            {/* Status selector dropdown */}
             <Select value={newStatus} onValueChange={setNewStatus}>
               <SelectTrigger className="mt-2 w-full">
                 <SelectValue placeholder="Select status" />
@@ -244,6 +321,7 @@ export function AdminOrdersContent() {
             <Button variant="outline" onClick={() => setStatusDialogOrder(null)}>
               Cancel
             </Button>
+            {/* Update button - disabled while saving or when status unchanged */}
             <Button onClick={handleUpdateStatus} disabled={saving || newStatus === statusDialogOrder?.status}>
               {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Update

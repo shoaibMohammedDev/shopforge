@@ -1,3 +1,17 @@
+/**
+ * @file account-dashboard.tsx
+ * @description Account overview dashboard page for the ShopForge e-commerce application.
+ * Displays a personalized welcome message, summary stat cards (orders, wishlist,
+ * addresses), recent orders list, and quick-access navigation links.
+ *
+ * @keyfeatures
+ * - Personalized greeting with the user's first name
+ * - Summary stat cards with click-to-navigate functionality
+ * - Recent orders list (last 5) with status badges
+ * - Quick-access link grid for common account actions
+ * - Loading skeletons for async data
+ * - Animated page entrance via Framer Motion
+ */
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
@@ -39,12 +53,33 @@ import {
 // AccountPage (Dashboard)
 // ============================================================================
 
+/**
+ * @function AccountPage
+ * @description Main account dashboard component. Renders an overview of the
+ * user's account activity including summary statistics, recent orders, and
+ * quick navigation links. Wrapped in AccountLayout for consistent sidebar/tab
+ * navigation.
+ *
+ * @state
+ * - `isAuthenticated` - from useAuthGuard, ensures user is logged in
+ * - `user` - from useAuthStore, the currently logged-in user object
+ * - `navigate` - from useRouterStore, programmatic navigation function
+ * - `productIds` - from useWishlistStore, array of wishlisted product IDs
+ * - `orders` - fetched via TanStack Query from /orders API endpoint
+ * - `addresses` - fetched via TanStack Query from /addresses API endpoint
+ *
+ * @remarks
+ * - Returns null if user is not authenticated or user object is unavailable
+ * - Recent orders limited to the 5 most recent entries
+ * - Each stat card is clickable and navigates to the corresponding account section
+ */
 export function AccountPage() {
   const isAuthenticated = useAuthGuard()
   const user = useAuthStore((s) => s.user)
   const navigate = useRouterStore((s) => s.navigate)
   const productIds = useWishlistStore((s) => s.productIds)
 
+  // Fetch user's orders from the API, enabled only when user ID is available
   const { data: orders = [], isLoading: ordersLoading } = useQuery<OrderWithItems[]>({
     queryKey: ['user-orders', user?.id],
     queryFn: async () => {
@@ -54,6 +89,7 @@ export function AccountPage() {
     enabled: !!user?.id,
   })
 
+  // Fetch user's saved addresses from the API, enabled only when user ID is available
   const { data: addresses = [] } = useQuery<AddressDisplay[]>({
     queryKey: ['user-addresses', user?.id],
     queryFn: async () => {
@@ -63,9 +99,14 @@ export function AccountPage() {
     enabled: !!user?.id,
   })
 
+  // Guard: don't render if not authenticated or user data not loaded
   if (!isAuthenticated || !user) return null
 
+  // Show only the 5 most recent orders in the dashboard overview
   const recentOrders = orders.slice(0, 5)
+
+  // Summary stat cards configuration: each card shows a count and navigates
+  // to the corresponding account section when clicked
   const stats = [
     {
       label: 'Total Orders',
@@ -97,7 +138,7 @@ export function AccountPage() {
         animate={{ opacity: 1, y: 0 }}
         className="space-y-6"
       >
-        {/* Welcome */}
+        {/* Welcome Section - personalized greeting with first name */}
         <div>
           <h1 className="text-2xl font-bold">
             Welcome back, {user.name?.split(' ')[0] || 'User'}!
@@ -107,7 +148,7 @@ export function AccountPage() {
           </p>
         </div>
 
-        {/* Stats Cards */}
+        {/* Stats Cards - clickable summary cards with icons, values, and labels */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {stats.map((stat) => {
             const Icon = stat.icon
@@ -119,9 +160,11 @@ export function AccountPage() {
               >
                 <CardContent className="p-6">
                   <div className="flex items-center gap-4">
+                    {/* Icon with colored background */}
                     <div className={`rounded-lg p-3 ${stat.color}`}>
                       <Icon className="size-5" />
                     </div>
+                    {/* Value and label */}
                     <div>
                       <p className="text-2xl font-bold">{stat.value}</p>
                       <p className="text-sm text-muted-foreground">{stat.label}</p>
@@ -133,10 +176,11 @@ export function AccountPage() {
           })}
         </div>
 
-        {/* Recent Orders */}
+        {/* Recent Orders - shows last 5 orders with status and total */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-4">
             <CardTitle className="text-lg">Recent Orders</CardTitle>
+            {/* View All link navigates to full order history */}
             <Button
               variant="ghost"
               size="sm"
@@ -149,12 +193,14 @@ export function AccountPage() {
           </CardHeader>
           <CardContent>
             {ordersLoading ? (
+              /* Loading state: skeleton placeholders for order rows */
               <div className="space-y-3">
                 {Array.from({ length: 3 }).map((_, i) => (
                   <Skeleton key={i} className="h-16 w-full" />
                 ))}
               </div>
             ) : recentOrders.length === 0 ? (
+              /* Empty state: prompt user to start shopping */
               <div className="text-center py-8">
                 <Package className="size-12 text-muted-foreground mx-auto mb-3" />
                 <p className="text-muted-foreground">No orders yet</p>
@@ -167,6 +213,7 @@ export function AccountPage() {
                 </Button>
               </div>
             ) : (
+              /* Order list: clickable rows with order number, date, item count, status, and total */
               <div className="space-y-3">
                 {recentOrders.map((order) => (
                   <div
@@ -177,9 +224,11 @@ export function AccountPage() {
                     }
                   >
                     <div className="flex items-center gap-3">
+                      {/* Order icon */}
                       <div className="rounded-lg bg-muted p-2">
                         <ShoppingBag className="size-4 text-muted-foreground" />
                       </div>
+                      {/* Order number and date */}
                       <div>
                         <p className="text-sm font-medium">{order.orderNumber}</p>
                         <p className="text-xs text-muted-foreground">
@@ -188,12 +237,14 @@ export function AccountPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
+                      {/* Status badge with color coding */}
                       <Badge
                         variant="secondary"
                         className={STATUS_COLORS[order.status] || ''}
                       >
                         {order.status}
                       </Badge>
+                      {/* Order total */}
                       <span className="text-sm font-medium">
                         {formatCurrency(order.totalAmount)}
                       </span>
@@ -205,7 +256,7 @@ export function AccountPage() {
           </CardContent>
         </Card>
 
-        {/* Quick Links */}
+        {/* Quick Links - grid of shortcut cards for common account actions */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
             { label: 'Browse Products', icon: ShoppingBag, route: 'products' as RoutePath },

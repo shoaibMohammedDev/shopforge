@@ -1,3 +1,21 @@
+/**
+ * @file admin-products.tsx
+ * @description Product management page for the ShopForge admin panel. Provides
+ * a searchable product list table with actions for viewing, activating/
+ * deactivating, and deleting products. Includes a dialog form for creating
+ * new products with fields for name, description, price, category, brand,
+ * stock, and image URLs.
+ *
+ * @keyfeatures
+ * - Searchable product table with responsive column hiding
+ * - Product image thumbnails in table rows
+ * - Activate/deactivate product toggle via dropdown menu
+ * - Delete product via dropdown menu
+ * - "Add Product" dialog form with comprehensive fields
+ * - Real-time search filtering by name, category, or brand
+ * - Loading skeletons and empty state handling
+ * - Stock quantity with low-stock warning (red text when <= 10)
+ */
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
@@ -51,6 +69,23 @@ import { formatCurrency, StatusBadge } from './admin-page'
 // AdminProductsContent
 // ============================================================================
 
+/**
+ * @interface AdminProduct
+ * @description Represents a product as returned by the admin API. Includes
+ * related category and brand names, inventory quantities, and activation status.
+ *
+ * @property {string} id - Unique product identifier
+ * @property {string} name - Product display name
+ * @property {string} slug - URL-friendly product slug
+ * @property {number} price - Current selling price
+ * @property {number | null} comparePrice - Original/reference price for showing discounts
+ * @property {string} images - JSON-encoded array of image URLs
+ * @property {boolean} isActive - Whether the product is visible in the store
+ * @property {boolean} isFeatured - Whether the product is featured on the homepage
+ * @property {{ name: string } | null} category - Related category with name
+ * @property {{ name: string } | null} brand - Related brand with name
+ * @property {{ quantity: number; reserved: number }[]} inventory - Array of inventory records
+ */
 interface AdminProduct {
   id: string
   name: string
@@ -65,6 +100,26 @@ interface AdminProduct {
   inventory: { quantity: number; reserved: number }[]
 }
 
+/**
+ * @function AdminProductsContent
+ * @description Product management content for the admin panel. Displays a
+ * searchable, filterable table of all products with actions for managing
+ * product status and creating new products.
+ *
+ * @state
+ * - `products` - array of AdminProduct fetched from /api/admin?action=products
+ * - `loading` - boolean for initial data fetch state
+ * - `search` - local search string for client-side filtering
+ * - `showAddDialog` - boolean controlling the add product dialog visibility
+ * - `saving` - boolean for the create product API call loading state
+ * - Form fields: formName, formDesc, formPrice, formComparePrice, formCategory,
+ *   formBrand, formStock, formImages - individual state for each form input
+ *
+ * @remarks
+ * - Products are filtered client-side by name, category, or brand
+ * - Total stock is calculated by summing all inventory quantity values
+ * - Low stock (<= 10) is highlighted in red
+ */
 export function AdminProductsContent() {
   const { navigate } = useRouterStore()
   const [products, setProducts] = useState<AdminProduct[]>([])
@@ -73,7 +128,7 @@ export function AdminProductsContent() {
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [saving, setSaving] = useState(false)
 
-  // Add product form state
+  // Add product form state - individual fields for the create product dialog
   const [formName, setFormName] = useState('')
   const [formDesc, setFormDesc] = useState('')
   const [formPrice, setFormPrice] = useState('')
@@ -83,6 +138,10 @@ export function AdminProductsContent() {
   const [formStock, setFormStock] = useState('')
   const [formImages, setFormImages] = useState('')
 
+  /**
+   * Fetches all products from the admin API. Called on mount and after
+   * mutations (create, toggle, delete) to refresh the product list.
+   */
   const fetchProducts = useCallback(async () => {
     try {
       const res = await fetch('/api/admin?action=products')
@@ -96,16 +155,24 @@ export function AdminProductsContent() {
     }
   }, [])
 
+  // Fetch products on component mount
   useEffect(() => {
     fetchProducts()
   }, [fetchProducts])
 
+  // Client-side filtering: search by name, category, or brand
   const filteredProducts = products.filter((p) =>
     p.name.toLowerCase().includes(search.toLowerCase()) ||
     p.category?.name?.toLowerCase().includes(search.toLowerCase()) ||
     p.brand?.name?.toLowerCase().includes(search.toLowerCase())
   )
 
+  /**
+   * Toggles a product's active status (activate/deactivate). Sends a PUT
+   * request to the admin API and refreshes the product list on success.
+   *
+   * @param {AdminProduct} product - The product to toggle
+   */
   async function handleToggleActive(product: AdminProduct) {
     try {
       const res = await fetch('/api/admin', {
@@ -125,6 +192,12 @@ export function AdminProductsContent() {
     }
   }
 
+  /**
+   * Deletes a product by ID. Sends a DELETE request to the admin API
+   * and refreshes the product list on success.
+   *
+   * @param {string} id - The ID of the product to delete
+   */
   async function handleDeleteProduct(id: string) {
     try {
       const res = await fetch(`/api/admin?action=delete-product&id=${id}`, { method: 'DELETE' })
@@ -136,6 +209,11 @@ export function AdminProductsContent() {
     }
   }
 
+  /**
+   * Handles the add product form submission. Sends a POST request to create
+   * a new product with the form field values. Parses comma-separated image
+   * URLs into an array. Resets the form and closes the dialog on success.
+   */
   async function handleAddProduct() {
     setSaving(true)
     try {
@@ -152,6 +230,7 @@ export function AdminProductsContent() {
             category: formCategory,
             brand: formBrand,
             stock: parseInt(formStock) || 0,
+            // Parse comma-separated URLs into an array
             images: formImages ? formImages.split(',').map((s) => s.trim()) : [],
           },
         }),
@@ -168,6 +247,9 @@ export function AdminProductsContent() {
     }
   }
 
+  /**
+   * Resets all add product form fields to their default empty values.
+   */
   function resetForm() {
     setFormName('')
     setFormDesc('')
@@ -181,7 +263,7 @@ export function AdminProductsContent() {
 
   return (
     <>
-      {/* Header bar */}
+      {/* Header bar with search input and Add Product button */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -202,6 +284,7 @@ export function AdminProductsContent() {
       <Card>
         <CardContent className="p-0">
           {loading ? (
+            /* Loading state: skeleton placeholders */
             <div className="p-6 space-y-4">
               {Array.from({ length: 5 }).map((_, i) => (
                 <Skeleton key={i} className="h-12 w-full" />
@@ -213,9 +296,12 @@ export function AdminProductsContent() {
                 <TableRow>
                   <TableHead>Image</TableHead>
                   <TableHead>Name</TableHead>
+                  {/* Category column - hidden on small screens */}
                   <TableHead className="hidden md:table-cell">Category</TableHead>
+                  {/* Brand column - hidden on medium and smaller screens */}
                   <TableHead className="hidden lg:table-cell">Brand</TableHead>
                   <TableHead>Price</TableHead>
+                  {/* Stock column - hidden on extra-small screens */}
                   <TableHead className="hidden sm:table-cell">Stock</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -223,6 +309,7 @@ export function AdminProductsContent() {
               </TableHeader>
               <TableBody>
                 {filteredProducts.length === 0 ? (
+                  /* Empty state: no products match the search filter */
                   <TableRow>
                     <TableCell colSpan={8} className="text-center text-gray-500 py-8">
                       No products found
@@ -230,10 +317,12 @@ export function AdminProductsContent() {
                   </TableRow>
                 ) : (
                   filteredProducts.map((product) => {
+                    // Parse images JSON and calculate total stock across all inventory records
                     const images: string[] = product.images ? JSON.parse(product.images) : []
                     const totalStock = product.inventory?.reduce((s, inv) => s + inv.quantity, 0) || 0
                     return (
                       <TableRow key={product.id}>
+                        {/* Product image thumbnail or placeholder */}
                         <TableCell>
                           {images[0] ? (
                             <img
@@ -247,17 +336,21 @@ export function AdminProductsContent() {
                             </div>
                           )}
                         </TableCell>
+                        {/* Product name - truncated for long names */}
                         <TableCell>
                           <p className="font-medium text-sm max-w-[200px] truncate">
                             {product.name}
                           </p>
                         </TableCell>
+                        {/* Category name */}
                         <TableCell className="hidden md:table-cell text-sm text-gray-500">
                           {product.category?.name || '—'}
                         </TableCell>
+                        {/* Brand name */}
                         <TableCell className="hidden lg:table-cell text-sm text-gray-500">
                           {product.brand?.name || '—'}
                         </TableCell>
+                        {/* Price with optional compare-at (strikethrough) price */}
                         <TableCell>
                           <div className="flex items-center gap-1">
                             <span className="text-sm font-medium">
@@ -270,6 +363,7 @@ export function AdminProductsContent() {
                             )}
                           </div>
                         </TableCell>
+                        {/* Stock quantity - red text for low stock (<= 10) */}
                         <TableCell className="hidden sm:table-cell">
                           <span
                             className={`text-sm font-medium ${
@@ -279,9 +373,11 @@ export function AdminProductsContent() {
                             {totalStock}
                           </span>
                         </TableCell>
+                        {/* Active/Inactive status badge */}
                         <TableCell>
                           <StatusBadge status={product.isActive ? 'ACTIVE' : 'INACTIVE'} />
                         </TableCell>
+                        {/* Action dropdown menu */}
                         <TableCell className="text-right">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -290,10 +386,12 @@ export function AdminProductsContent() {
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end">
+                              {/* View product detail page */}
                               <DropdownMenuItem onClick={() => navigate('product-detail', { id: product.id })}>
                                 <Eye className="mr-2 h-4 w-4" />
                                 View
                               </DropdownMenuItem>
+                              {/* Toggle active/inactive status */}
                               <DropdownMenuItem onClick={() => handleToggleActive(product)}>
                                 {product.isActive ? (
                                   <XCircle className="mr-2 h-4 w-4" />
@@ -303,6 +401,7 @@ export function AdminProductsContent() {
                                 {product.isActive ? 'Deactivate' : 'Activate'}
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
+                              {/* Delete product */}
                               <DropdownMenuItem
                                 variant="destructive"
                                 onClick={() => handleDeleteProduct(product.id)}
@@ -323,7 +422,7 @@ export function AdminProductsContent() {
         </CardContent>
       </Card>
 
-      {/* Add Product Dialog */}
+      {/* Add Product Dialog - form with all product fields */}
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
         <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -331,6 +430,7 @@ export function AdminProductsContent() {
             <DialogDescription>Create a new product listing.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
+            {/* Product name field */}
             <div className="grid gap-2">
               <Label htmlFor="prod-name">Product Name</Label>
               <Input
@@ -340,6 +440,7 @@ export function AdminProductsContent() {
                 placeholder="Enter product name"
               />
             </div>
+            {/* Product description field */}
             <div className="grid gap-2">
               <Label htmlFor="prod-desc">Description</Label>
               <Textarea
@@ -350,6 +451,7 @@ export function AdminProductsContent() {
                 rows={3}
               />
             </div>
+            {/* Price and Compare Price - side by side */}
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="prod-price">Price</Label>
@@ -374,6 +476,7 @@ export function AdminProductsContent() {
                 />
               </div>
             </div>
+            {/* Category and Brand - side by side */}
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="prod-category">Category</Label>
@@ -394,6 +497,7 @@ export function AdminProductsContent() {
                 />
               </div>
             </div>
+            {/* Stock quantity */}
             <div className="grid gap-2">
               <Label htmlFor="prod-stock">Stock Quantity</Label>
               <Input
@@ -404,6 +508,7 @@ export function AdminProductsContent() {
                 placeholder="0"
               />
             </div>
+            {/* Image URLs - comma-separated */}
             <div className="grid gap-2">
               <Label htmlFor="prod-images">Image URLs</Label>
               <Input
@@ -419,6 +524,7 @@ export function AdminProductsContent() {
             <Button variant="outline" onClick={() => setShowAddDialog(false)}>
               Cancel
             </Button>
+            {/* Submit button - disabled while saving or when required fields are empty */}
             <Button onClick={handleAddProduct} disabled={saving || !formName || !formPrice}>
               {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Create Product
