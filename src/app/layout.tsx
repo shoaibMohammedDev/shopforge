@@ -82,8 +82,8 @@ export const metadata: Metadata = {
     "discount",
   ],
   authors: [{ name: "Shoaib Mohammed" }],
-  creator: "ShopForge",
-  publisher: "ShopForge",
+  creator: "Shoaib Mohammed",
+  publisher: "Shoaib Mohammed",
   /** Disable automatic detection of email, address, and phone to avoid unwanted linking on mobile */
   formatDetection: {
     email: false,
