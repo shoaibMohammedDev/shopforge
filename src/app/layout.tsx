@@ -179,8 +179,17 @@ export default function RootLayout({
           }}
         />
       </head>
+      {/**
+       * suppressHydrationWarning prevents React hydration mismatch warnings caused by
+       * browser extensions (e.g. Czech keyboard, accessibility tools, password managers)
+       * that inject attributes like `cz-shortcut-listen` or `data-new-gr-c-s-check`
+       * onto the <body> element before React hydrates. Without this flag, React detects
+       * a diff between the server-rendered HTML and the client DOM and logs a warning.
+       * This is safe because these injected attributes are non-functional for the app.
+       */}
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
+        suppressHydrationWarning
       >
         {/** Providers wraps the app in theme, auth, cart, and other context providers */}
         <Providers>
