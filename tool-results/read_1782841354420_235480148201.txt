@@ -1,0 +1,1415 @@
+     1→/**
+     2→ * @file products-page.tsx
+     3→ * @description Products listing page for the ShopForge e-commerce application.
+     4→ * Displays a filterable, searchable, and sortable grid of products with
+     5→ * pagination, breadcrumb navigation, and responsive filter sidebar.
+     6→ *
+     7→ * @key_features
+     8→ * - Full-text search with debounced input (400ms delay)
+     9→ * - Multi-faceted filtering: category, brand, price range, and rating
+    10→ * - Sort options: newest, price (asc/desc), rating, popularity
+    11→ * - Desktop: persistent sidebar filters; Mobile: sheet-based filter drawer
+    12→ * - Active filter chips with individual removal
+    13→ * - Paginated product grid with skeleton loading states
+    14→ * - Breadcrumb navigation reflecting active category
+    15→ * - Empty state for zero results with "clear filters" action
+    16→ */
+    17→
+    18→'use client'
+    19→
+    20→import { useState, useCallback, useMemo, useEffect } from 'react'
+    21→import { useQuery } from '@tanstack/react-query'
+    22→import { motion, AnimatePresence } from 'framer-motion'
+    23→import {
+    24→  Search,
+    25→  SlidersHorizontal,
+    26→  Star,
+    27→  Heart,
+    28→  ShoppingCart,
+    29→  ChevronRight,
+    30→  X,
+    31→  Zap,
+    32→  PackageOpen,
+    33→  Home,
+    34→} from 'lucide-react'
+    35→import { useRouterStore } from '@/stores/router-store'
+    36→import { useCartStore, type LocalCartItem } from '@/stores/cart-store'
+    37→import { useWishlistStore } from '@/stores/wishlist-store'
+    38→import { api } from '@/lib/api-client'
+    39→import { useIsMobile } from '@/hooks/use-mobile'
+    40→import type {
+    41→  ProductListItem,
+    42→  CategoryDisplay,
+    43→  BrandDisplay,
+    44→  PaginatedResponse,
+    45→  ProductFilters,
+    46→} from '@/types'
+    47→
+    48→import { Button } from '@/components/ui/button'
+    49→import { Card, CardContent } from '@/components/ui/card'
+    50→import { Badge } from '@/components/ui/badge'
+    51→import { Skeleton } from '@/components/ui/skeleton'
+    52→import { Input } from '@/components/ui/input'
+    53→import { Checkbox } from '@/components/ui/checkbox'
+    54→import { Label } from '@/components/ui/label'
+    55→import { Separator } from '@/components/ui/separator'
+    56→import { ScrollArea } from '@/components/ui/scroll-area'
+    57→import {
+    58→  Select,
+    59→  SelectContent,
+    60→  SelectItem,
+    61→  SelectTrigger,
+    62→  SelectValue,
+    63→} from '@/components/ui/select'
+    64→import {
+    65→  Sheet,
+    66→  SheetContent,
+    67→  SheetDescription,
+    68→  SheetHeader,
+    69→  SheetTitle,
+    70→  SheetTrigger,
+    71→  SheetFooter,
+    72→} from '@/components/ui/sheet'
+    73→import {
+    74→  Breadcrumb,
+    75→  BreadcrumbItem,
+    76→  BreadcrumbLink,
+    77→  BreadcrumbList,
+    78→  BreadcrumbPage,
+    79→  BreadcrumbSeparator,
+    80→} from '@/components/ui/breadcrumb'
+    81→import {
+    82→  Pagination,
+    83→  PaginationContent,
+    84→  PaginationItem,
+    85→  PaginationLink,
+    86→  PaginationNext,
+    87→  PaginationPrevious,
+    88→  PaginationEllipsis,
+    89→} from '@/components/ui/pagination'
+    90→
+    91→// ============================================================================
+    92→// Star Rating Component
+    93→// ============================================================================
+    94→
+    95→/**
+    96→ * StarRating - Renders a row of 1–5 star icons based on a numeric rating value.
+    97→ *
+    98→ * @param {number} rating - The average rating value (e.g., 4.3). Rounded to the nearest integer for fill state.
+    99→ * @param {number} [count] - Optional review count displayed in parentheses next to the stars.
+   100→ * @returns {JSX.Element} A flex row of filled/empty star icons with an optional count label.
+   101→ */
+   102→function StarRating({ rating, count }: { rating: number; count?: number }) {
+   103→  return (
+   104→    <div className="flex items-center gap-1">
+   105→      {/* Render 5 stars; fill stars up to the rounded rating value */}
+   106→      <div className="flex">
+   107→        {[1, 2, 3, 4, 5].map((star) => (
+   108→          <Star
+   109→            key={star}
+   110→            className={`h-3.5 w-3.5 ${
+   111→              star <= Math.round(rating)
+   112→                ? 'text-amber-400 fill-amber-400'
+   113→                : 'text-gray-300'
+   114→            }`}
+   115→          />
+   116→        ))}
+   117→      </div>
+   118→      {/* Show review count if provided */}
+   119→      {count !== undefined && (
+   120→        <span className="text-xs text-muted-foreground">({count})</span>
+   121→      )}
+   122→    </div>
+   123→  )
+   124→}
+   125→
+   126→// ============================================================================
+   127→// Animation Variants
+   128→// ============================================================================
+   129→
+   130→/**
+   131→ * Framer Motion animation variants for the products page.
+   132→ * - staggerContainer: Parent container that staggers children entrance animations
+   133→ * - staggerItem: Individual child item animation with slide-up effect
+   134→ */
+   135→const staggerContainer = {
+   136→  hidden: { opacity: 0 },
+   137→  visible: {
+   138→    opacity: 1,
+   139→    transition: { staggerChildren: 0.06, delayChildren: 0.1 },
+   140→  },
+   141→}
+   142→
+   143→const staggerItem = {
+   144→  hidden: { opacity: 0, y: 20 },
+   145→  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' as const } },
+   146→}
+   147→
+   148→// ============================================================================
+   149→// Helpers
+   150→// ============================================================================
+   151→
+   152→/**
+   153→ * Parses a JSON string of image URLs into a string array.
+   154→ * Safely handles malformed JSON by returning an empty array on parse failure.
+   155→ *
+   156→ * @param {string} imagesStr - JSON-encoded string of image URL array.
+   157→ * @returns {string[]} Array of image URL strings, or empty array if parsing fails.
+   158→ */
+   159→function parseImages(imagesStr: string): string[] {
+   160→  try {
+   161→    const parsed = JSON.parse(imagesStr)
+   162→    return Array.isArray(parsed) ? parsed : []
+   163→  } catch {
+   164→    return []
+   165→  }
+   166→}
+   167→
+   168→/**
+   169→ * Formats a numeric price value into a USD currency string.
+   170→ *
+   171→ * @param {number} price - The price value to format.
+   172→ * @returns {string} Formatted price string (e.g., "$29.99").
+   173→ */
+   174→function formatPrice(price: number): string {
+   175→  return new Intl.NumberFormat('en-US', {
+   176→    style: 'currency',
+   177→    currency: 'USD',
+   178→  }).format(price)
+   179→}
+   180→
+   181→// ============================================================================
+   182→// Filter State Interface
+   183→// ============================================================================
+   184→
+   185→/**
+   186→ * FilterState - Represents the current state of all product filters.
+   187→ * Each filter change resets the page to 1 to avoid empty results on higher pages.
+   188→ *
+   189→ * @property {string} search - Full-text search query string
+   190→ * @property {string[]} categoryIds - Array of selected category IDs (multi-select)
+   191→ * @property {string[]} brandIds - Array of selected brand IDs (multi-select)
+   192→ * @property {string} minPrice - Minimum price filter (empty string means no filter)
+   193→ * @property {string} maxPrice - Maximum price filter (empty string means no filter)
+   194→ * @property {number} minRating - Minimum star rating filter (0 means no filter)
+   195→ * @property {string} sort - Current sort option key
+   196→ * @property {number} page - Current pagination page number
+   197→ */
+   198→interface FilterState {
+   199→  search: string
+   200→  categoryIds: string[]
+   201→  brandIds: string[]
+   202→  minPrice: string
+   203→  maxPrice: string
+   204→  minRating: number
+   205→  sort: string
+   206→  page: number
+   207→}
+   208→
+   209→/** Default filter state with no active filters and newest sort order */
+   210→const defaultFilters: FilterState = {
+   211→  search: '',
+   212→  categoryIds: [],
+   213→  brandIds: [],
+   214→  minPrice: '',
+   215→  maxPrice: '',
+   216→  minRating: 0,
+   217→  sort: 'newest',
+   218→  page: 1,
+   219→}
+   220→
+   221→// ============================================================================
+   222→// Star Rating Filter Component
+   223→// ============================================================================
+   224→
+   225→/**
+   226→ * StarRatingFilter - A clickable star rating filter for the sidebar.
+   227→ * Displays options for "4 stars & up", "3 stars & up", etc.
+   228→ * Clicking an active rating deselects it (toggles off).
+   229→ *
+   230→ * @param {Object} props
+   231→ * @param {number} props.value - The currently selected minimum rating (0 = no filter).
+   232→ * @param {(rating: number) => void} props.onChange - Callback when the minimum rating changes.
+   233→ */
+   234→function StarRatingFilter({
+   235→  value,
+   236→  onChange,
+   237→}: {
+   238→  value: number
+   239→  onChange: (rating: number) => void
+   240→}) {
+   241→  const options = [4, 3, 2, 1]
+   242→
+   243→  return (
+   244→    <div className="space-y-2">
+   245→      {options.map((rating) => (
+   246→        <button
+   247→          key={rating}
+   248→          type="button"
+   249→          onClick={() => onChange(value === rating ? 0 : rating)}
+   250→          className={`flex items-center gap-2 w-full rounded-md px-2 py-1.5 text-sm transition-colors ${
+   251→            value === rating
+   252→              ? 'bg-primary/10 text-primary font-medium'
+   253→              : 'hover:bg-accent'
+   254→          }`}
+   255→        >
+   256→          {/* Render 5 stars for this rating level */}
+   257→          <div className="flex items-center gap-0.5">
+   258→            {Array.from({ length: 5 }).map((_, i) => (
+   259→              <Star
+   260→                key={i}
+   261→                className={`size-3.5 ${
+   262→                  i < rating
+   263→                    ? 'fill-amber-400 text-amber-400'
+   264→                    : 'text-muted-foreground/40'
+   265→                }`}
+   266→              />
+   267→            ))}
+   268→          </div>
+   269→          <span className="text-muted-foreground">& up</span>
+   270→        </button>
+   271→      ))}
+   272→    </div>
+   273→  )
+   274→}
+   275→
+   276→// ============================================================================
+   277→// Filter Sidebar Content (shared between desktop & mobile)
+   278→// ============================================================================
+   279→
+   280→/**
+   281→ * FilterSidebarContent - The filter UI shared between the desktop sidebar and mobile sheet.
+   282→ * Contains category checkboxes, brand checkboxes, price range inputs,
+   283→ * star rating filter, and optional "Apply Filters" button for mobile.
+   284→ *
+   285→ * @param {Object} props
+   286→ * @param {FilterState} props.filters - Current filter state object.
+   287→ * @param {React.Dispatch<React.SetStateAction<FilterState>>} props.setFilters - State setter for filters.
+   288→ * @param {CategoryDisplay[]} props.categories - Available categories for the category filter.
+   289→ * @param {BrandDisplay[]} props.brands - Available brands for the brand filter.
+   290→ * @param {boolean} props.categoriesLoading - Whether categories are still loading.
+   291→ * @param {boolean} props.brandsLoading - Whether brands are still loading.
+   292→ * @param {() => void} [props.onClose] - Optional close callback for the mobile sheet drawer.
+   293→ */
+   294→function FilterSidebarContent({
+   295→  filters,
+   296→  setFilters,
+   297→  categories,
+   298→  brands,
+   299→  categoriesLoading,
+   300→  brandsLoading,
+   301→  onClose,
+   302→}: {
+   303→  filters: FilterState
+   304→  setFilters: React.Dispatch<React.SetStateAction<FilterState>>
+   305→  categories: CategoryDisplay[]
+   306→  brands: BrandDisplay[]
+   307→  categoriesLoading: boolean
+   308→  brandsLoading: boolean
+   309→  onClose?: () => void
+   310→}) {
+   311→  /**
+   312→   * Toggles a category ID in the filter. Removes it if already selected,
+   313→   * adds it if not. Resets page to 1 on change.
+   314→   */
+   315→  const toggleCategory = useCallback(
+   316→    (id: string) => {
+   317→      setFilters((prev) => ({
+   318→        ...prev,
+   319→        categoryIds: prev.categoryIds.includes(id)
+   320→          ? prev.categoryIds.filter((c) => c !== id)
+   321→          : [...prev.categoryIds, id],
+   322→        page: 1,
+   323→      }))
+   324→    },
+   325→    [setFilters]
+   326→  )
+   327→
+   328→  /**
+   329→   * Toggles a brand ID in the filter. Removes it if already selected,
+   330→   * adds it if not. Resets page to 1 on change.
+   331→   */
+   332→  const toggleBrand = useCallback(
+   333→    (id: string) => {
+   334→      setFilters((prev) => ({
+   335→        ...prev,
+   336→        brandIds: prev.brandIds.includes(id)
+   337→          ? prev.brandIds.filter((b) => b !== id)
+   338→          : [...prev.brandIds, id],
+   339→        page: 1,
+   340→      }))
+   341→    },
+   342→    [setFilters]
+   343→  )
+   344→
+   345→  /**
+   346→   * Resets all filters to their default values and closes the mobile sheet if open.
+   347→   */
+   348→  const clearFilters = useCallback(() => {
+   349→    setFilters({ ...defaultFilters })
+   350→    onClose?.()
+   351→  }, [setFilters, onClose])
+   352→
+   353→  // Determine if any non-search filters are active (for showing "Clear All" button)
+   354→  const hasActiveFilters =
+   355→    filters.categoryIds.length > 0 ||
+   356→    filters.brandIds.length > 0 ||
+   357→    filters.minPrice !== '' ||
+   358→    filters.maxPrice !== '' ||
+   359→    filters.minRating > 0
+   360→
+   361→  return (
+   362→    <div className="space-y-6">
+   363→      {/* Header with Clear All button when filters are active */}
+   364→      <div className="flex items-center justify-between">
+   365→        <h3 className="font-semibold text-sm uppercase tracking-wider">Filters</h3>
+   366→        {hasActiveFilters && (
+   367→          <Button variant="ghost" size="sm" onClick={clearFilters} className="h-7 text-xs">
+   368→            Clear All
+   369→          </Button>
+   370→        )}
+   371→      </div>
+   372→
+   373→      <Separator />
+   374→
+   375→      {/* Category Filter - checkboxes for each category and its children */}
+   376→      <div className="space-y-3">
+   377→        <h4 className="font-medium text-sm">Category</h4>
+   378→        {categoriesLoading ? (
+   379→          /* Skeleton placeholders while categories are loading */
+   380→          <div className="space-y-2">
+   381→            {Array.from({ length: 5 }).map((_, i) => (
+   382→              <Skeleton key={i} className="h-5 w-full" />
+   383→            ))}
+   384→          </div>
+   385→        ) : (
+   386→          <ScrollArea className="max-h-48">
+   387→            <div className="space-y-2 pr-2">
+   388→              {/* Parent categories */}
+   389→              {categories.map((cat) => (
+   390→                <div key={cat.id} className="flex items-center gap-2">
+   391→                  <Checkbox
+   392→                    id={`cat-${cat.id}`}
+   393→                    checked={filters.categoryIds.includes(cat.id)}
+   394→                    onCheckedChange={() => toggleCategory(cat.id)}
+   395→                  />
+   396→                  <Label
+   397→                    htmlFor={`cat-${cat.id}`}
+   398→                    className="text-sm cursor-pointer flex-1 leading-tight"
+   399→                  >
+   400→                    {cat.name}
+   401→                    {cat._count && (
+   402→                      <span className="text-muted-foreground ml-1">
+   403→                        ({cat._count.products})
+   404→                      </span>
+   405→                    )}
+   406→                  </Label>
+   407→                </div>
+   408→              ))}
+   409→              {/* Nested child categories (indented with pl-4) */}
+   410→              {categories.flatMap((cat) =>
+   411→                cat.children
+   412→                  ? cat.children.map((child) => (
+   413→                      <div key={child.id} className="flex items-center gap-2 pl-4">
+   414→                        <Checkbox
+   415→                          id={`cat-${child.id}`}
+   416→                          checked={filters.categoryIds.includes(child.id)}
+   417→                          onCheckedChange={() => toggleCategory(child.id)}
+   418→                        />
+   419→                        <Label
+   420→                          htmlFor={`cat-${child.id}`}
+   421→                          className="text-sm cursor-pointer flex-1 leading-tight"
+   422→                        >
+   423→                          {child.name}
+   424→                          {child._count && (
+   425→                            <span className="text-muted-foreground ml-1">
+   426→                              ({child._count.products})
+   427→                            </span>
+   428→                          )}
+   429→                        </Label>
+   430→                      </div>
+   431→                    ))
+   432→                  : []
+   433→              )}
+   434→            </div>
+   435→          </ScrollArea>
+   436→        )}
+   437→      </div>
+   438→
+   439→      <Separator />
+   440→
+   441→      {/* Brand Filter - checkboxes for each brand */}
+   442→      <div className="space-y-3">
+   443→        <h4 className="font-medium text-sm">Brand</h4>
+   444→        {brandsLoading ? (
+   445→          /* Skeleton placeholders while brands are loading */
+   446→          <div className="space-y-2">
+   447→            {Array.from({ length: 5 }).map((_, i) => (
+   448→              <Skeleton key={i} className="h-5 w-full" />
+   449→            ))}
+   450→          </div>
+   451→        ) : (
+   452→          <ScrollArea className="max-h-48">
+   453→            <div className="space-y-2 pr-2">
+   454→              {brands.map((brand) => (
+   455→                <div key={brand.id} className="flex items-center gap-2">
+   456→                  <Checkbox
+   457→                    id={`brand-${brand.id}`}
+   458→                    checked={filters.brandIds.includes(brand.id)}
+   459→                    onCheckedChange={() => toggleBrand(brand.id)}
+   460→                  />
+   461→                  <Label
+   462→                    htmlFor={`brand-${brand.id}`}
+   463→                    className="text-sm cursor-pointer flex-1 leading-tight"
+   464→                  >
+   465→                    {brand.name}
+   466→                    {brand._count && (
+   467→                      <span className="text-muted-foreground ml-1">
+   468→                        ({brand._count.products})
+   469→                      </span>
+   470→                    )}
+   471→                  </Label>
+   472→                </div>
+   473→              ))}
+   474→            </div>
+   475→          </ScrollArea>
+   476→        )}
+   477→      </div>
+   478→
+   479→      <Separator />
+   480→
+   481→      {/* Price Range - min/max number inputs */}
+   482→      <div className="space-y-3">
+   483→        <h4 className="font-medium text-sm">Price Range</h4>
+   484→        <div className="flex items-center gap-2">
+   485→          {/* Minimum price input - updates filter and resets page */}
+   486→          <Input
+   487→            type="number"
+   488→            placeholder="Min"
+   489→            value={filters.minPrice}
+   490→            onChange={(e) =>
+   491→              setFilters((prev) => ({ ...prev, minPrice: e.target.value, page: 1 }))
+   492→            }
+   493→            className="h-8 text-sm"
+   494→            min={0}
+   495→          />
+   496→          <span className="text-muted-foreground text-sm">—</span>
+   497→          {/* Maximum price input - updates filter and resets page */}
+   498→          <Input
+   499→            type="number"
+   500→            placeholder="Max"
+   501→            value={filters.maxPrice}
+   502→            onChange={(e) =>
+   503→              setFilters((prev) => ({ ...prev, maxPrice: e.target.value, page: 1 }))
+   504→            }
+   505→            className="h-8 text-sm"
+   506→            min={0}
+   507→          />
+   508→        </div>
+   509→      </div>
+   510→
+   511→      <Separator />
+   512→
+   513→      {/* Rating Filter - star rating buttons */}
+   514→      <div className="space-y-3">
+   515→        <h4 className="font-medium text-sm">Rating</h4>
+   516→        <StarRatingFilter
+   517→          value={filters.minRating}
+   518→          onChange={(rating) =>
+   519→            setFilters((prev) => ({ ...prev, minRating: rating, page: 1 }))
+   520→          }
+   521→        />
+   522→      </div>
+   523→
+   524→      {/* Mobile Apply Button - only shown in the mobile sheet drawer context */}
+   525→      {onClose && (
+   526→        <>
+   527→          <Separator />
+   528→          <Button className="w-full" onClick={onClose}>
+   529→            Apply Filters
+   530→          </Button>
+   531→        </>
+   532→      )}
+   533→    </div>
+   534→  )
+   535→}
+   536→
+   537→// ============================================================================
+   538→// Product Card
+   539→// ============================================================================
+   540→
+   541→/**
+   542→ * ProductCard - A card component for displaying a single product in the listing grid.
+   543→ *
+   544→ * Renders the product image (or a gradient placeholder), discount/flash sale badges,
+   545→ * an out-of-stock overlay, a wishlist toggle button, brand name, product name,
+   546→ * star rating, price with optional strikethrough, and an "Add to Cart" button.
+   547→ * The wishlist button is hidden until hover for a cleaner look.
+   548→ *
+   549→ * Clicking the card navigates to the product detail page.
+   550→ *
+   551→ * @param {Object} props
+   552→ * @param {ProductListItem} props.product - The product data to display.
+   553→ *
+   554→ * @state
+   555→ * - Uses cart store (addItem) for adding items to cart
+   556→ * - Uses wishlist store (toggleItem, isInWishlist) for wishlist toggling
+   557→ * - Uses router store (navigate) for navigation to product detail
+   558→ */
+   559→function ProductCard({ product }: { product: ProductListItem }) {
+   560→  const navigate = useRouterStore((s) => s.navigate)
+   561→  const addItem = useCartStore((s) => s.addItem)
+   562→  const toggleItem = useWishlistStore((s) => s.toggleItem)
+   563→  const isInWishlist = useWishlistStore((s) => s.isInWishlist)
+   564→  const wishlisted = isInWishlist(product.id)
+   565→
+   566→  // Parse the product images JSON string into an array of URLs
+   567→  const images = parseImages(product.images)
+   568→  // Determine if the product has an active discount (comparePrice > selling price)
+   569→  const hasDiscount = product.comparePrice && product.comparePrice > product.price
+   570→  // Calculate the discount percentage for the badge display
+   571→  const discountPercent = hasDiscount
+   572→    ? Math.round(
+   573→        ((product.comparePrice! - product.price) / product.comparePrice!) * 100
+   574→      )
+   575→    : 0
+   576→
+   577→  // Use flash sale price if the product is part of an active flash sale; otherwise use regular price
+   578→  const displayPrice =
+   579→    product.flashSaleProduct?.[0]?.salePrice ?? product.price
+   580→
+   581→  // Calculate total available inventory across all inventory records
+   582→  const totalInventory = product.inventory.reduce(
+   583→    (sum, inv) => sum + inv.quantity - inv.reserved,
+   584→    0
+   585→  )
+   586→  const inStock = totalInventory > 0
+   587→
+   588→  /**
+   589→   * Handles adding the product to the cart.
+   590→   * Stops event propagation to prevent triggering the card's navigation onClick.
+   591→   */
+   592→  const handleAddToCart = useCallback(
+   593→    (e: React.MouseEvent) => {
+   594→      e.stopPropagation()
+   595→      addItem({
+   596→        productId: product.id,
+   597→        name: product.name,
+   598→        slug: product.slug,
+   599→        price: displayPrice,
+   600→        comparePrice: product.comparePrice ?? undefined,
+   601→        image: images[0] ?? '',
+   602→        quantity: 1,
+   603→        sku: product.slug,
+   604→      })
+   605→    },
+   606→    [addItem, product, images, displayPrice]
+   607→  )
+   608→
+   609→  /**
+   610→   * Handles toggling the product in the wishlist.
+   611→   * Stops event propagation to prevent navigation.
+   612→   */
+   613→  const handleWishlist = useCallback(
+   614→    (e: React.MouseEvent) => {
+   615→      e.stopPropagation()
+   616→      toggleItem(product.id)
+   617→    },
+   618→    [toggleItem, product.id]
+   619→  )
+   620→
+   621→  /**
+   622→   * Navigates to the product detail page when the card is clicked.
+   623→   */
+   624→  const handleNavigate = useCallback(() => {
+   625→    navigate('product-detail', { id: product.id })
+   626→  }, [navigate, product.id])
+   627→
+   628→  return (
+   629→    <motion.div variants={staggerItem} className="group">
+   630→      <Card
+   631→        className="overflow-hidden cursor-pointer transition-all hover:shadow-lg py-0 gap-0"
+   632→        onClick={handleNavigate}
+   633→      >
+   634→        {/* Image / Gradient placeholder */}
+   635→        <div className="relative aspect-square overflow-hidden bg-muted">
+   636→          {/* Render the product image if available, otherwise show a gradient with the first letter */}
+   637→          {images[0] ? (
+   638→            <img
+   639→              src={images[0]}
+   640→              alt={product.name}
+   641→              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+   642→            />
+   643→          ) : (
+   644→            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-800">
+   645→              <span className="text-4xl font-bold text-slate-400 dark:text-slate-500">
+   646→                {product.name.charAt(0).toUpperCase()}
+   647→              </span>
+   648→            </div>
+   649→          )}
+   650→
+   651→          {/* Discount badge - shows percentage off when compare price exists */}
+   652→          {discountPercent > 0 && (
+   653→            <Badge className="absolute top-2 left-2 bg-red-500 text-white hover:bg-red-600 border-0 text-xs">
+   654→              -{discountPercent}%
+   655→            </Badge>
+   656→          )}
+   657→
+   658→          {/* Flash sale badge - overrides discount badge position when flash sale is active */}
+   659→          {product.flashSaleProduct?.[0] && product.flashSaleProduct[0].flashSale?.isActive && (
+   660→            <Badge className="absolute top-2 left-2 bg-orange-500 text-white hover:bg-orange-600 border-0 text-xs gap-1">
+   661→              <Zap className="size-3" /> Flash
+   662→            </Badge>
+   663→          )}
+   664→
+   665→          {/* Out of stock overlay - dims the image and shows a badge */}
+   666→          {!inStock && (
+   667→            <div className="absolute inset-0 bg-background/60 flex items-center justify-center">
+   668→              <Badge variant="secondary" className="text-xs font-medium">
+   669→                Out of Stock
+   670→              </Badge>
+   671→            </div>
+   672→          )}
+   673→
+   674→          {/* Wishlist button - only visible on hover (opacity-0 group-hover:opacity-100) */}
+   675→          <Button
+   676→            variant="ghost"
+   677→            size="icon"
+   678→            className="absolute top-2 right-2 size-8 rounded-full bg-white/80 dark:bg-black/50 hover:bg-white dark:hover:bg-black/70 transition-opacity opacity-0 group-hover:opacity-100"
+   679→            onClick={handleWishlist}
+   680→            aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+   681→          >
+   682→            <Heart
+   683→              className={`size-4 ${
+   684→                wishlisted
+   685→                  ? 'fill-red-500 text-red-500'
+   686→                  : 'text-slate-600 dark:text-slate-300'
+   687→              }`}
+   688→            />
+   689→          </Button>
+   690→        </div>
+   691→
+   692→        <CardContent className="p-4 space-y-2">
+   693→          {/* Brand name - shown if the product has an associated brand */}
+   694→          {product.brand && (
+   695→            <p className="text-xs text-muted-foreground truncate">
+   696→              {product.brand.name}
+   697→            </p>
+   698→          )}
+   699→
+   700→          {/* Product name - truncated to 2 lines with minimum height for consistent card sizing */}
+   701→          <h3 className="font-medium text-sm line-clamp-2 leading-tight min-h-[2.5rem]">
+   702→            {product.name}
+   703→          </h3>
+   704→
+   705→          {/* Star rating with review count */}
+   706→          <StarRating rating={product.avgRating} count={product.reviewCount} />
+   707→
+   708→          {/* Price display - shows sale price in red for flash sale items, with optional strikethrough compare price */}
+   709→          <div className="flex items-baseline gap-2">
+   710→            <span
+   711→              className={`font-semibold ${
+   712→                product.flashSaleProduct?.[0] && product.flashSaleProduct[0].flashSale?.isActive
+   713→                  ? 'text-red-600 dark:text-red-400'
+   714→                  : ''
+   715→              }`}
+   716→            >
+   717→              {formatPrice(displayPrice)}
+   718→            </span>
+   719→            {hasDiscount && (
+   720→              <span className="text-sm text-muted-foreground line-through">
+   721→                {formatPrice(product.comparePrice!)}
+   722→              </span>
+   723→            )}
+   724→          </div>
+   725→
+   726→          {/* Add to cart button - disabled when out of stock */}
+   727→          <Button
+   728→            size="sm"
+   729→            className="w-full mt-1 gap-2"
+   730→            onClick={handleAddToCart}
+   731→            disabled={!inStock}
+   732→          >
+   733→            <ShoppingCart className="size-4" />
+   734→            {inStock ? 'Add to Cart' : 'Out of Stock'}
+   735→          </Button>
+   736→        </CardContent>
+   737→      </Card>
+   738→    </motion.div>
+   739→  )
+   740→}
+   741→
+   742→// ============================================================================
+   743→// Product Card Skeleton
+   744→// ============================================================================
+   745→
+   746→/**
+   747→ * ProductCardSkeleton - A loading placeholder that mimics the ProductCard layout.
+   748→ * Used while product data is being fetched to prevent layout shift.
+   749→ *
+   750→ * @returns {JSX.Element} A skeleton card with placeholder shapes matching the ProductCard structure.
+   751→ */
+   752→function ProductCardSkeleton() {
+   753→  return (
+   754→    <Card className="overflow-hidden py-0 gap-0">
+   755→      <Skeleton className="aspect-square w-full" />
+   756→      <div className="p-4 space-y-3">
+   757→        {/* Brand placeholder */}
+   758→        <Skeleton className="h-3 w-16" />
+   759→        {/* Name placeholder (2 lines) */}
+   760→        <Skeleton className="h-4 w-full" />
+   761→        <Skeleton className="h-4 w-2/3" />
+   762→        {/* Stars placeholder */}
+   763→        <div className="flex gap-1">
+   764→          {Array.from({ length: 5 }).map((_, i) => (
+   765→            <Skeleton key={i} className="size-3.5 rounded-full" />
+   766→          ))}
+   767→        </div>
+   768→        {/* Price placeholder */}
+   769→        <div className="flex items-baseline gap-2">
+   770→          <Skeleton className="h-5 w-20" />
+   771→          <Skeleton className="h-4 w-16" />
+   772→        </div>
+   773→        {/* Button placeholder */}
+   774→        <Skeleton className="h-8 w-full" />
+   775→      </div>
+   776→    </Card>
+   777→  )
+   778→}
+   779→
+   780→// ============================================================================
+   781→// Empty State
+   782→// ============================================================================
+   783→
+   784→/**
+   785→ * EmptyState - Displayed when no products match the current filters.
+   786→ * Shows a contextual message and a "Clear All Filters" button when filters are active.
+   787→ *
+   788→ * @param {Object} props
+   789→ * @param {boolean} props.hasFilters - Whether any filters are currently active.
+   790→ * @param {() => void} props.onClear - Callback to clear all active filters.
+   791→ */
+   792→function EmptyState({ hasFilters, onClear }: { hasFilters: boolean; onClear: () => void }) {
+   793→  return (
+   794→    <motion.div
+   795→      initial={{ opacity: 0, y: 20 }}
+   796→      animate={{ opacity: 1, y: 0 }}
+   797→      className="flex flex-col items-center justify-center py-20 text-center"
+   798→    >
+   799→      <div className="rounded-full bg-muted p-6 mb-4">
+   800→        <PackageOpen className="size-12 text-muted-foreground" />
+   801→      </div>
+   802→      <h3 className="text-xl font-semibold mb-2">No products found</h3>
+   803→      {/* Contextual message based on whether filters are active */}
+   804→      <p className="text-muted-foreground mb-6 max-w-md">
+   805→        {hasFilters
+   806→          ? 'We couldn\'t find any products matching your filters. Try adjusting your search criteria.'
+   807→          : 'There are no products available at the moment. Check back soon!'}
+   808→      </p>
+   809→      {/* Only show clear button when filters are active */}
+   810→      {hasFilters && (
+   811→        <Button variant="outline" onClick={onClear}>
+   812→          Clear All Filters
+   813→        </Button>
+   814→      )}
+   815→    </motion.div>
+   816→  )
+   817→}
+   818→
+   819→// ============================================================================
+   820→// Pagination Helper
+   821→// ============================================================================
+   822→
+   823→/**
+   824→ * Generates an array of page numbers and ellipsis markers for pagination display.
+   825→ * Implements a smart truncation strategy:
+   826→ * - Shows all pages if total is 7 or fewer
+   827→ * - Otherwise shows first page, last page, current page ±1, and ellipsis as needed
+   828→ *
+   829→ * @param {number} currentPage - The currently active page number.
+   830→ * @param {number} totalPages - The total number of pages.
+   831→ * @returns {(number | 'ellipsis')[]} Array of page numbers and 'ellipsis' strings for rendering.
+   832→ *
+   833→ * @example
+   834→ * generatePaginationPages(5, 10) // => [1, 'ellipsis', 4, 5, 6, 'ellipsis', 10]
+   835→ * generatePaginationPages(2, 5)  // => [1, 2, 3, 4, 5]
+   836→ */
+   837→function generatePaginationPages(currentPage: number, totalPages: number): (number | 'ellipsis')[] {
+   838→  // If total pages is small enough, show all page numbers without ellipsis
+   839→  if (totalPages <= 7) {
+   840→    return Array.from({ length: totalPages }, (_, i) => i + 1)
+   841→  }
+   842→
+   843→  const pages: (number | 'ellipsis')[] = [1]
+   844→
+   845→  // Add leading ellipsis if current page is far from the start
+   846→  if (currentPage > 3) {
+   847→    pages.push('ellipsis')
+   848→  }
+   849→
+   850→  // Show current page and its immediate neighbors
+   851→  const start = Math.max(2, currentPage - 1)
+   852→  const end = Math.min(totalPages - 1, currentPage + 1)
+   853→
+   854→  for (let i = start; i <= end; i++) {
+   855→    pages.push(i)
+   856→  }
+   857→
+   858→  // Add trailing ellipsis if current page is far from the end
+   859→  if (currentPage < totalPages - 2) {
+   860→    pages.push('ellipsis')
+   861→  }
+   862→
+   863→  // Always include the last page
+   864→  pages.push(totalPages)
+   865→  return pages
+   866→}
+   867→
+   868→// ============================================================================
+   869→// Main ProductsPage Component
+   870→// ============================================================================
+   871→
+   872→/**
+   873→ * ProductsPage - The main product listing page for the ShopForge e-commerce platform.
+   874→ *
+   875→ * Displays a filterable, searchable, and sortable grid of products with:
+   876→ * - Responsive filter sidebar (desktop) / sheet drawer (mobile)
+   877→ * - Debounced search input
+   878→ * - Sort dropdown
+   879→ * - Active filter chips with individual removal
+   880→ * - Paginated product grid
+   881→ * - Breadcrumb navigation
+   882→ *
+   883→ * @state
+   884→ * - filters: Current FilterState controlling all filter/sort/page parameters
+   885→ * - searchInput: Raw search input value (debounced before updating filters.search)
+   886→ * - mobileFiltersOpen: Controls visibility of the mobile filter sheet
+   887→ *
+   888→ * @data_fetching
+   889→ * - Products (paginated, filtered, sorted via query params)
+   890→ * - Categories (for the category filter)
+   891→ * - Brands (for the brand filter)
+   892→ */
+   893→export default function ProductsPage() {
+   894→  const navigate = useRouterStore((s) => s.navigate)
+   895→  const params = useRouterStore((s) => s.params)
+   896→  const isMobile = useIsMobile()
+   897→  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
+   898→
+   899→  // Initialize filters from router params (e.g., when navigating from homepage category click)
+   900→  const [filters, setFilters] = useState<FilterState>(() => ({
+   901→    ...defaultFilters,
+   902→    search: params.search || '',
+   903→    categoryIds: params.categoryId ? [params.categoryId] : [],
+   904→    brandIds: params.brandId ? [params.brandId] : [],
+   905→    sort: params.sort || defaultFilters.sort,
+   906→  }))
+   907→
+   908→  // Search input with debounce - the raw input updates immediately for UX,
+   909→  // but the actual filter state updates after a 400ms delay
+   910→  const [searchInput, setSearchInput] = useState(filters.search)
+   911→
+   912→  /**
+   913→   * Debounce effect: Updates filters.search after 400ms of inactivity
+   914→   * on the search input. This prevents excessive API calls while typing.
+   915→   */
+   916→  useEffect(() => {
+   917→    const timer = setTimeout(() => {
+   918→      setFilters((prev) => ({ ...prev, search: searchInput, page: 1 }))
+   919→    }, 400)
+   920→    return () => clearTimeout(timer)
+   921→  }, [searchInput])
+   922→
+   923→  /**
+   924→   * Build the query parameters object from the current filter state.
+   925→   * Only includes non-default/non-empty values to keep the API request clean.
+   926→   */
+   927→  const queryParams = useMemo(() => {
+   928→    const p: Record<string, string | number | boolean | undefined> = {
+   929→      page: filters.page,
+   930→      limit: 12,
+   931→      sort: filters.sort,
+   932→    }
+   933→    if (filters.search) p.search = filters.search
+   934→    if (filters.categoryIds.length > 0) p.categoryId = filters.categoryIds.join(',')
+   935→    if (filters.brandIds.length > 0) p.brandId = filters.brandIds.join(',')
+   936→    if (filters.minPrice) p.minPrice = filters.minPrice
+   937→    if (filters.maxPrice) p.maxPrice = filters.maxPrice
+   938→    if (filters.minRating > 0) p.minRating = filters.minRating
+   939→    if (params.isFeatured === 'true') p.isFeatured = true
+   940→    if (params.tag) p.tag = params.tag
+   941→    return p
+   942→  }, [filters, params.isFeatured, params.tag])
+   943→
+   944→  /** Fetch products with the current filter/sort/page parameters */
+   945→  const {
+   946→    data: productsData,
+   947→    isLoading: productsLoading,
+   948→    isError: productsError,
+   949→  } = useQuery({
+   950→    queryKey: ['products', queryParams],
+   951→    queryFn: async () => {
+   952→      const response = await api.get<PaginatedResponse<ProductListItem>>(
+   953→        '/products',
+   954→        queryParams
+   955→      )
+   956→      if (!response.success || !response.data) {
+   957→        throw new Error(response.error || 'Failed to fetch products')
+   958→      }
+   959→      return response.data
+   960→    },
+   961→  })
+   962→
+   963→  /** Fetch all categories for the filter sidebar */
+   964→  const { data: categories = [], isLoading: categoriesLoading } = useQuery({
+   965→    queryKey: ['categories'],
+   966→    queryFn: async () => {
+   967→      const response = await api.get<CategoryDisplay[]>('/categories')
+   968→      if (!response.success || !response.data) {
+   969→        throw new Error(response.error || 'Failed to fetch categories')
+   970→      }
+   971→      return response.data
+   972→    },
+   973→  })
+   974→
+   975→  /** Fetch all brands for the filter sidebar */
+   976→  const { data: brands = [], isLoading: brandsLoading } = useQuery({
+   977→    queryKey: ['brands'],
+   978→    queryFn: async () => {
+   979→      const response = await api.get<BrandDisplay[]>('/brands')
+   980→      if (!response.success || !response.data) {
+   981→        throw new Error(response.error || 'Failed to fetch brands')
+   982→      }
+   983→      return response.data
+   984→    },
+   985→  })
+   986→
+   987→  /**
+   988→   * Find the active category name for the breadcrumb display.
+   989→   * Recursively searches through categories and their children.
+   990→   */
+   991→  const activeCategoryName = useMemo(() => {
+   992→    if (filters.categoryIds.length !== 1) return null
+   993→    const findName = (cats: CategoryDisplay[]): string | null => {
+   994→      for (const cat of cats) {
+   995→        if (cat.id === filters.categoryIds[0]) return cat.name
+   996→        if (cat.children) {
+   997→          const found = findName(cat.children)
+   998→          if (found) return found
+   999→        }
+  1000→      }
+  1001→      return null
+  1002→    }
+  1003→    return findName(categories)
+  1004→  }, [filters.categoryIds, categories])
+  1005→
+  1006→  // Determine if any filters are active (including search) for chip display
+  1007→  const hasActiveFilters =
+  1008→    filters.categoryIds.length > 0 ||
+  1009→    filters.brandIds.length > 0 ||
+  1010→    filters.minPrice !== '' ||
+  1011→    filters.maxPrice !== '' ||
+  1012→    filters.minRating > 0 ||
+  1013→    filters.search !== ''
+  1014→
+  1015→  /**
+  1016→   * Clears all filters back to defaults and resets the search input.
+  1017→   */
+  1018→  const clearAllFilters = useCallback(() => {
+  1019→    setFilters({ ...defaultFilters })
+  1020→    setSearchInput('')
+  1021→  }, [])
+  1022→
+  1023→  // Extract pagination data from the API response
+  1024→  const products = productsData?.items ?? []
+  1025→  const totalProducts = productsData?.total ?? 0
+  1026→  const totalPages = productsData?.totalPages ?? 0
+  1027→  const currentPage = productsData?.page ?? 1
+  1028→
+  1029→  return (
+  1030→    <div className="min-h-screen flex flex-col">
+  1031→      {/* Breadcrumb navigation bar - shows Home > Products > [Category] path */}
+  1032→      <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+  1033→        <div className="container mx-auto px-4 py-3">
+  1034→          <Breadcrumb>
+  1035→            <BreadcrumbList>
+  1036→              <BreadcrumbItem>
+  1037→                <BreadcrumbLink
+  1038→                  className="cursor-pointer flex items-center gap-1"
+  1039→                  onClick={() => navigate('home')}
+  1040→                >
+  1041→                  <Home className="size-3.5" />
+  1042→                  Home
+  1043→                </BreadcrumbLink>
+  1044→              </BreadcrumbItem>
+  1045→              <BreadcrumbSeparator />
+  1046→              <BreadcrumbItem>
+  1047→                {/* If a category is active, "Products" becomes a link to clear the category filter */}
+  1048→                {activeCategoryName ? (
+  1049→                  <BreadcrumbLink
+  1050→                    className="cursor-pointer"
+  1051→                    onClick={() =>
+  1052→                      setFilters((prev) => ({
+  1053→                        ...prev,
+  1054→                        categoryIds: [],
+  1055→                        page: 1,
+  1056→                      }))
+  1057→                    }
+  1058→                  >
+  1059→                    Products
+  1060→                  </BreadcrumbLink>
+  1061→                ) : (
+  1062→                  <BreadcrumbPage>Products</BreadcrumbPage>
+  1063→                )}
+  1064→              </BreadcrumbItem>
+  1065→              {/* Show the active category name as the final breadcrumb if one is selected */}
+  1066→              {activeCategoryName && (
+  1067→                <>
+  1068→                  <BreadcrumbSeparator />
+  1069→                  <BreadcrumbItem>
+  1070→                    <BreadcrumbPage>{activeCategoryName}</BreadcrumbPage>
+  1071→                  </BreadcrumbItem>
+  1072→                </>
+  1073→              )}
+  1074→            </BreadcrumbList>
+  1075→          </Breadcrumb>
+  1076→        </div>
+  1077→      </div>
+  1078→
+  1079→      {/* Main content area with sidebar + product grid layout */}
+  1080→      <div className="flex-1">
+  1081→        <div className="container mx-auto px-4 py-6">
+  1082→          <div className="flex gap-6">
+  1083→            {/* Desktop Filter Sidebar - fixed width, sticky position, hidden on mobile */}
+  1084→            {!isMobile && (
+  1085→              <aside className="hidden lg:block w-64 shrink-0">
+  1086→                <div className="sticky top-20">
+  1087→                  <ScrollArea className="h-[calc(100vh-6rem)]">
+  1088→                    <div className="pr-4 pb-8">
+  1089→                      <FilterSidebarContent
+  1090→                        filters={filters}
+  1091→                        setFilters={setFilters}
+  1092→                        categories={categories}
+  1093→                        brands={brands}
+  1094→                        categoriesLoading={categoriesLoading}
+  1095→                        brandsLoading={brandsLoading}
+  1096→                      />
+  1097→                    </div>
+  1098→                  </ScrollArea>
+  1099→                </div>
+  1100→              </aside>
+  1101→            )}
+  1102→
+  1103→            {/* Product listing area */}
+  1104→            <main className="flex-1 min-w-0">
+  1105→              {/* Sort & Search Bar */}
+  1106→              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 mb-6">
+  1107→                {/* Mobile Filter Button - opens a sheet drawer with filter content */}
+  1108→                {isMobile && (
+  1109→                  <Sheet open={mobileFiltersOpen} onOpenChange={setMobileFiltersOpen}>
+  1110→                    <SheetTrigger asChild>
+  1111→                      <Button variant="outline" size="sm" className="gap-2 shrink-0">
+  1112→                        <SlidersHorizontal className="size-4" />
+  1113→                        Filters
+  1114→                        {/* Show active filter count badge */}
+  1115→                        {hasActiveFilters && (
+  1116→                          <Badge className="ml-1 h-5 min-w-5 px-1 text-[10px]">
+  1117→                            {filters.categoryIds.length +
+  1118→                              filters.brandIds.length +
+  1119→                              (filters.minPrice !== '' ? 1 : 0) +
+  1120→                              (filters.maxPrice !== '' ? 1 : 0) +
+  1121→                              (filters.minRating > 0 ? 1 : 0)}
+  1122→                          </Badge>
+  1123→                        )}
+  1124→                      </Button>
+  1125→                    </SheetTrigger>
+  1126→                    {/* Mobile filter sheet - slides in from the left */}
+  1127→                    <SheetContent side="left" className="w-[320px] sm:w-[380px] p-0 flex flex-col">
+  1128→                      <SheetHeader className="px-4 pt-4 pb-2">
+  1129→                        <SheetTitle className="flex items-center gap-2">
+  1130→                          <SlidersHorizontal className="size-5" />
+  1131→                          Filter Products
+  1132→                        </SheetTitle>
+  1133→                        {/* Screen reader only description for accessibility */}
+  1134→                        <SheetDescription className="sr-only">
+  1135→                          Filter products by category, brand, price, and rating
+  1136→                        </SheetDescription>
+  1137→                      </SheetHeader>
+  1138→                      <div className="flex-1 overflow-y-auto px-4 pb-4">
+  1139→                        <FilterSidebarContent
+  1140→                          filters={filters}
+  1141→                          setFilters={setFilters}
+  1142→                          categories={categories}
+  1143→                          brands={brands}
+  1144→                          categoriesLoading={categoriesLoading}
+  1145→                          brandsLoading={brandsLoading}
+  1146→                          onClose={() => setMobileFiltersOpen(false)}
+  1147→                        />
+  1148→                      </div>
+  1149→                    </SheetContent>
+  1150→                  </Sheet>
+  1151→                )}
+  1152→
+  1153→                {/* Search input with icon and clear button */}
+  1154→                <div className="relative flex-1 w-full sm:max-w-xs">
+  1155→                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+  1156→                  <Input
+  1157→                    type="text"
+  1158→                    placeholder="Search products..."
+  1159→                    value={searchInput}
+  1160→                    onChange={(e) => setSearchInput(e.target.value)}
+  1161→                    className="pl-9 pr-9 h-9"
+  1162→                  />
+  1163→                  {/* Clear search button - only shown when there's text in the input */}
+  1164→                  {searchInput && (
+  1165→                    <button
+  1166→                      type="button"
+  1167→                      onClick={() => setSearchInput('')}
+  1168→                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+  1169→                    >
+  1170→                      <X className="size-3.5" />
+  1171→                    </button>
+  1172→                  )}
+  1173→                </div>
+  1174→
+  1175→                {/* Sort dropdown - resets page to 1 on change */}
+  1176→                <Select
+  1177→                  value={filters.sort}
+  1178→                  onValueChange={(value) =>
+  1179→                    setFilters((prev) => ({ ...prev, sort: value, page: 1 }))
+  1180→                  }
+  1181→                >
+  1182→                  <SelectTrigger className="w-[180px] h-9">
+  1183→                    <SelectValue placeholder="Sort by" />
+  1184→                  </SelectTrigger>
+  1185→                  <SelectContent>
+  1186→                    <SelectItem value="newest">Newest</SelectItem>
+  1187→                    <SelectItem value="price-asc">Price: Low to High</SelectItem>
+  1188→                    <SelectItem value="price-desc">Price: High to Low</SelectItem>
+  1189→                    <SelectItem value="rating">Rating</SelectItem>
+  1190→                    <SelectItem value="popular">Popular</SelectItem>
+  1191→                  </SelectContent>
+  1192→                </Select>
+  1193→
+  1194→                {/* Results count display */}
+  1195→                <span className="text-sm text-muted-foreground whitespace-nowrap ml-auto">
+  1196→                  {productsLoading
+  1197→                    ? 'Loading...'
+  1198→                    : `Showing ${products.length} of ${totalProducts} products`}
+  1199→                </span>
+  1200→              </div>
+  1201→
+  1202→              {/* Active filter chips - each chip shows the filter value with an X to remove it */}
+  1203→              {hasActiveFilters && (
+  1204→                <div className="flex flex-wrap gap-2 mb-4">
+  1205→                  {/* Search filter chip */}
+  1206→                  {filters.search && (
+  1207→                    <Badge variant="secondary" className="gap-1">
+  1208→                      Search: {filters.search}
+  1209→                      <X
+  1210→                        className="size-3 cursor-pointer"
+  1211→                        onClick={() => {
+  1212→                          setSearchInput('')
+  1213→                          setFilters((prev) => ({ ...prev, search: '', page: 1 }))
+  1214→                        }}
+  1215→                      />
+  1216→                    </Badge>
+  1217→                  )}
+  1218→                  {/* Category filter chips */}
+  1219→                  {filters.categoryIds.map((id) => {
+  1220→                    const cat = categories.find((c) => c.id === id) ||
+  1221→                      categories.flatMap((c) => c.children || []).find((c) => c.id === id)
+  1222→                    return cat ? (
+  1223→                      <Badge key={id} variant="secondary" className="gap-1">
+  1224→                        {cat.name}
+  1225→                        <X
+  1226→                          className="size-3 cursor-pointer"
+  1227→                          onClick={() =>
+  1228→                            setFilters((prev) => ({
+  1229→                              ...prev,
+  1230→                              categoryIds: prev.categoryIds.filter((c) => c !== id),
+  1231→                              page: 1,
+  1232→                            }))
+  1233→                          }
+  1234→                        />
+  1235→                      </Badge>
+  1236→                    ) : null
+  1237→                  })}
+  1238→                  {/* Brand filter chips */}
+  1239→                  {filters.brandIds.map((id) => {
+  1240→                    const brand = brands.find((b) => b.id === id)
+  1241→                    return brand ? (
+  1242→                      <Badge key={id} variant="secondary" className="gap-1">
+  1243→                        {brand.name}
+  1244→                        <X
+  1245→                          className="size-3 cursor-pointer"
+  1246→                          onClick={() =>
+  1247→                            setFilters((prev) => ({
+  1248→                              ...prev,
+  1249→                              brandIds: prev.brandIds.filter((b) => b !== id),
+  1250→                              page: 1,
+  1251→                            }))
+  1252→                          }
+  1253→                        />
+  1254→                      </Badge>
+  1255→                    ) : null
+  1256→                  })}
+  1257→                  {/* Min price filter chip */}
+  1258→                  {filters.minPrice && (
+  1259→                    <Badge variant="secondary" className="gap-1">
+  1260→                      Min: ${filters.minPrice}
+  1261→                      <X
+  1262→                        className="size-3 cursor-pointer"
+  1263→                        onClick={() =>
+  1264→                          setFilters((prev) => ({ ...prev, minPrice: '', page: 1 }))
+  1265→                        }
+  1266→                      />
+  1267→                    </Badge>
+  1268→                  )}
+  1269→                  {/* Max price filter chip */}
+  1270→                  {filters.maxPrice && (
+  1271→                    <Badge variant="secondary" className="gap-1">
+  1272→                      Max: ${filters.maxPrice}
+  1273→                      <X
+  1274→                        className="size-3 cursor-pointer"
+  1275→                        onClick={() =>
+  1276→                          setFilters((prev) => ({ ...prev, maxPrice: '', page: 1 }))
+  1277→                        }
+  1278→                      />
+  1279→                    </Badge>
+  1280→                  )}
+  1281→                  {/* Min rating filter chip */}
+  1282→                  {filters.minRating > 0 && (
+  1283→                    <Badge variant="secondary" className="gap-1">
+  1284→                      {filters.minRating}+ Stars
+  1285→                      <X
+  1286→                        className="size-3 cursor-pointer"
+  1287→                        onClick={() =>
+  1288→                          setFilters((prev) => ({ ...prev, minRating: 0, page: 1 }))
+  1289→                        }
+  1290→                      />
+  1291→                    </Badge>
+  1292→                  )}
+  1293→                  {/* Clear all button */}
+  1294→                  <Button
+  1295→                    variant="ghost"
+  1296→                    size="sm"
+  1297→                    className="h-6 text-xs text-muted-foreground"
+  1298→                    onClick={clearAllFilters}
+  1299→                  >
+  1300→                    Clear all
+  1301→                  </Button>
+  1302→                </div>
+  1303→              )}
+  1304→
+  1305→              {/* Product Grid - shows error, loading, empty, or products */}
+  1306→              {productsError ? (
+  1307→                /* Error state with retry option */
+  1308→                <div className="flex flex-col items-center justify-center py-20 text-center">
+  1309→                  <p className="text-destructive font-medium mb-2">Failed to load products</p>
+  1310→                  <p className="text-muted-foreground text-sm mb-4">
+  1311→                    Something went wrong. Please try again.
+  1312→                  </p>
+  1313→                  <Button variant="outline" onClick={clearAllFilters}>
+  1314→                    Clear Filters & Retry
+  1315→                  </Button>
+  1316→                </div>
+  1317→              ) : productsLoading ? (
+  1318→                /* Loading skeleton: 12 placeholder cards matching the grid layout */
+  1319→                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+  1320→                  {Array.from({ length: 12 }).map((_, i) => (
+  1321→                    <ProductCardSkeleton key={i} />
+  1322→                  ))}
+  1323→                </div>
+  1324→              ) : products.length === 0 ? (
+  1325→                /* Empty state when no products match the current filters */
+  1326→                <EmptyState hasFilters={hasActiveFilters} onClear={clearAllFilters} />
+  1327→              ) : (
+  1328→                /* Product grid with AnimatePresence for smooth transitions when filters change */
+  1329→                <AnimatePresence mode="wait">
+  1330→                  <motion.div
+  1331→                    key={JSON.stringify(queryParams)}
+  1332→                    variants={staggerContainer}
+  1333→                    initial="hidden"
+  1334→                    animate="visible"
+  1335→                    className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"
+  1336→                  >
+  1337→                    {products.map((product) => (
+  1338→                      <ProductCard key={product.id} product={product} />
+  1339→                    ))}
+  1340→                  </motion.div>
+  1341→                </AnimatePresence>
+  1342→              )}
+  1343→
+  1344→              {/* Pagination - only shown when there are multiple pages */}
+  1345→              {!productsLoading && totalPages > 1 && (
+  1346→                <div className="mt-8 flex justify-center">
+  1347→                  <Pagination>
+  1348→                    <PaginationContent>
+  1349→                      {/* Previous page button - disabled on first page */}
+  1350→                      <PaginationItem>
+  1351→                        <PaginationPrevious
+  1352→                          className={
+  1353→                            currentPage <= 1
+  1354→                              ? 'pointer-events-none opacity-50'
+  1355→                              : 'cursor-pointer'
+  1356→                          }
+  1357→                          onClick={() =>
+  1358→                            setFilters((prev) => ({
+  1359→                              ...prev,
+  1360→                              page: Math.max(1, prev.page - 1),
+  1361→                            }))
+  1362→                          }
+  1363→                        />
+  1364→                      </PaginationItem>
+  1365→
+  1366→                      {/* Page number buttons with ellipsis for large page counts */}
+  1367→                      {generatePaginationPages(currentPage, totalPages).map(
+  1368→                        (page, idx) =>
+  1369→                          page === 'ellipsis' ? (
+  1370→                            <PaginationItem key={`ellipsis-${idx}`}>
+  1371→                              <PaginationEllipsis />
+  1372→                            </PaginationItem>
+  1373→                          ) : (
+  1374→                            <PaginationItem key={page}>
+  1375→                              <PaginationLink
+  1376→                                isActive={page === currentPage}
+  1377→                                className="cursor-pointer"
+  1378→                                onClick={() =>
+  1379→                                  setFilters((prev) => ({ ...prev, page }))
+  1380→                                }
+  1381→                              >
+  1382→                                {page}
+  1383→                              </PaginationLink>
+  1384→                            </PaginationItem>
+  1385→                          )
+  1386→                      )}
+  1387→
+  1388→                      {/* Next page button - disabled on last page */}
+  1389→                      <PaginationItem>
+  1390→                        <PaginationNext
+  1391→                          className={
+  1392→                            currentPage >= totalPages
+  1393→                              ? 'pointer-events-none opacity-50'
+  1394→                              : 'cursor-pointer'
+  1395→                          }
+  1396→                          onClick={() =>
+  1397→                            setFilters((prev) => ({
+  1398→                              ...prev,
+  1399→                              page: Math.min(totalPages, prev.page + 1),
+  1400→                            }))
+  1401→                          }
+  1402→                        />
+  1403→                      </PaginationItem>
+  1404→                    </PaginationContent>
+  1405→                  </Pagination>
+  1406→                </div>
+  1407→              )}
+  1408→            </main>
+  1409→          </div>
+  1410→        </div>
+  1411→      </div>
+  1412→    </div>
+  1413→  )
+  1414→}
+  1415→

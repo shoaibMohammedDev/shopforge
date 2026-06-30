@@ -17,15 +17,15 @@
 
 'use client'
 
-import { useRouterStore } from '@/stores/router-store'
-import { Header } from '@/components/layout/header'
-import { Footer } from '@/components/layout/footer'
-import HomePage from '@/components/pages/home/home-page'
-import ProductsPage from '@/components/pages/products/products-page'
-import ProductDetailPage from '@/components/pages/products/product-detail-page'
-import CartPage from '@/components/pages/cart/cart-page'
-import CheckoutPage from '@/components/pages/checkout/checkout-page'
-import { LoginPage, RegisterPage } from '@/components/pages/auth/auth-pages'
+import { useRouterStore } from "@/shared/stores/router-store"
+import { Header } from "@/shared/components/layout/header"
+import { Footer } from "@/shared/components/layout/footer"
+import HomePage from "@/shared/components/home/home-page"
+import ProductsPage from "@/modules/products/components/products-page"
+import ProductDetailPage from "@/modules/products/components/product-detail-page"
+import CartPage from "@/modules/cart/components/cart-page"
+import CheckoutPage from "@/modules/checkout/components/checkout-page"
+import { LoginPage, RegisterPage } from "@/modules/auth/components/auth-pages"
 import {
   AccountPage,
   AccountOrdersPage,
@@ -33,8 +33,8 @@ import {
   AccountWishlistPage,
   AccountAddressesPage,
   AccountSettingsPage,
-} from '@/components/pages/account/account-pages'
-import { AdminPage } from '@/components/pages/admin/admin-page'
+} from "@/modules/account/components/account-pages"
+import { AdminPage } from "@/modules/admin/components/admin-page"
 
 /**
  * Set of route identifiers that belong to the admin section.

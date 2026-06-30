@@ -17,12 +17,12 @@
  */
 
 import { NextResponse } from 'next/server'
-import { adminService } from '@/features/admin/services/admin.service'
-import { orderService } from '@/features/orders/services/order.service'
-import { couponService } from '@/features/coupons/services/coupon.service'
-import { productService } from '@/features/products/services/product.service'
-import { handleApiError } from '@/lib/errors'
-import { db } from '@/lib/db'
+import { adminService } from "@/modules/admin/services/admin.service"
+import { orderService } from "@/modules/orders/services/order.service"
+import { couponService } from "@/modules/coupons/services/coupon.service"
+import { productService } from "@/modules/products/services/product.service"
+import { handleApiError } from "@/shared/lib/errors"
+import { db } from "@/infrastructure/database"
 
 /**
  * Handles GET requests for admin data retrieval.

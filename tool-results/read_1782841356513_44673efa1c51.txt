@@ -1,0 +1,639 @@
+     1→/**
+     2→ * @file account-orders.tsx
+     3→ * @description Order history list and order detail pages for the ShopForge
+     4→ * e-commerce account section. Provides two exported components:
+     5→ * - AccountOrdersPage: Filterable list of all user orders with status tabs
+     6→ * - AccountOrderDetailPage: Detailed single-order view with timeline, items,
+     7→ *   addresses, payment info, and order summary breakdown
+     8→ *
+     9→ * @keyfeatures
+    10→ * - Status filter tabs (ALL, PENDING, PROCESSING, SHIPPED, DELIVERED, CANCELLED)
+    11→ * - Order cards with image thumbnails, status badges, and quick view button
+    12→ * - Order detail page with visual status timeline progression
+    13→ * - Shipping/billing address display parsed from JSON
+    14→ * - Payment method and status information
+    15→ * - Order total breakdown (subtotal, shipping, tax, discount, total)
+    16→ * - Loading skeletons and empty/error states
+    17→ * - Back navigation via router store goBack()
+    18→ */
+    19→'use client'
+    20→
+    21→import { useState } from 'react'
+    22→import { useQuery } from '@tanstack/react-query'
+    23→import { motion } from 'framer-motion'
+    24→import {
+    25→  Package,
+    26→  ShoppingBag,
+    27→  Eye,
+    28→  Loader2,
+    29→  CheckCircle2,
+    30→  Circle,
+    31→  Truck,
+    32→  CreditCard,
+    33→  AlertTriangle,
+    34→  Clock,
+    35→  ArrowLeft,
+    36→} from 'lucide-react'
+    37→import { useRouterStore } from '@/stores/router-store'
+    38→import { useAuthStore } from '@/stores/auth-store'
+    39→import { api } from '@/lib/api-client'
+    40→
+    41→import { Button } from '@/components/ui/button'
+    42→import {
+    43→  Card,
+    44→  CardContent,
+    45→  CardHeader,
+    46→  CardTitle,
+    47→} from '@/components/ui/card'
+    48→import { Separator } from '@/components/ui/separator'
+    49→import { Badge } from '@/components/ui/badge'
+    50→import { Skeleton } from '@/components/ui/skeleton'
+    51→import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+    52→
+    53→import {
+    54→  AccountLayout,
+    55→  useAuthGuard,
+    56→  formatCurrency,
+    57→  formatDate,
+    58→  STATUS_COLORS,
+    59→  ORDER_STATUS_STEPS,
+    60→  type OrderWithItems,
+    61→} from './account-layout'
+    62→
+    63→// ============================================================================
+    64→// AccountOrdersPage
+    65→// ============================================================================
+    66→
+    67→/**
+    68→ * @function AccountOrdersPage
+    69→ * @description Displays a filterable list of the authenticated user's orders.
+    70→ * Users can filter orders by status using tab buttons, view order image
+    71→ * thumbnails, and navigate to the order detail page.
+    72→ *
+    73→ * @state
+    74→ * - `isAuthenticated` - from useAuthGuard, ensures user is logged in
+    75→ * - `user` - from useAuthStore, the current user object
+    76→ * - `navigate` - from useRouterStore, programmatic navigation function
+    77→ * - `statusFilter` - local state for the active status filter tab (default: 'ALL')
+    78→ * - `orders` - fetched via TanStack Query from /orders API endpoint
+    79→ *
+    80→ * @remarks
+    81→ * - Returns null if user is not authenticated or user object is unavailable
+    82→ * - Filter tabs include ALL plus all order statuses
+    83→ * - Each order card shows up to 4 product image thumbnails with overflow indicator
+    84→ */
+    85→export function AccountOrdersPage() {
+    86→  const isAuthenticated = useAuthGuard()
+    87→  const user = useAuthStore((s) => s.user)
+    88→  const navigate = useRouterStore((s) => s.navigate)
+    89→  const [statusFilter, setStatusFilter] = useState('ALL')
+    90→
+    91→  // Fetch user's orders from the API, enabled only when user ID is available
+    92→  const { data: orders = [], isLoading } = useQuery<OrderWithItems[]>({
+    93→    queryKey: ['user-orders', user?.id],
+    94→    queryFn: async () => {
+    95→      const result = await api.get<OrderWithItems[]>('/orders', { userId: user!.id })
+    96→      return result.success && result.data ? result.data : []
+    97→    },
+    98→    enabled: !!user?.id,
+    99→  })
+   100→
+   101→  // Guard: don't render if not authenticated or user data not loaded
+   102→  if (!isAuthenticated || !user) return null
+   103→
+   104→  // Apply status filter: show all orders or filter by selected status
+   105→  const filteredOrders =
+   106→    statusFilter === 'ALL'
+   107→      ? orders
+   108→      : orders.filter((o) => o.status === statusFilter)
+   109→
+   110→  // Available filter tab options for order status filtering
+   111→  const filterTabs = ['ALL', 'PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED']
+   112→
+   113→  return (
+   114→    <AccountLayout>
+   115→      <motion.div
+   116→        initial={{ opacity: 0, y: 10 }}
+   117→        animate={{ opacity: 1, y: 0 }}
+   118→        className="space-y-6"
+   119→      >
+   120→        {/* Page Header */}
+   121→        <div>
+   122→          <h1 className="text-2xl font-bold">My Orders</h1>
+   123→          <p className="text-muted-foreground mt-1">
+   124→            Track and manage your orders
+   125→          </p>
+   126→        </div>
+   127→
+   128→        {/* Filter Tabs - horizontally scrollable status filter buttons */}
+   129→        <div className="overflow-x-auto">
+   130→          <Tabs value={statusFilter} onValueChange={setStatusFilter}>
+   131→            <TabsList className="w-full justify-start">
+   132→              {filterTabs.map((tab) => (
+   133→                <TabsTrigger key={tab} value={tab} className="text-xs sm:text-sm">
+   134→                  {tab === 'ALL' ? 'All' : tab.charAt(0) + tab.slice(1).toLowerCase()}
+   135→                </TabsTrigger>
+   136→              ))}
+   137→            </TabsList>
+   138→          </Tabs>
+   139→        </div>
+   140→
+   141→        {/* Orders List - renders loading, empty, or order cards */}
+   142→        {isLoading ? (
+   143→          /* Loading state: skeleton placeholders */
+   144→          <div className="space-y-4">
+   145→            {Array.from({ length: 3 }).map((_, i) => (
+   146→              <Skeleton key={i} className="h-132 w-full" />
+   147→            ))}
+   148→          </div>
+   149→        ) : filteredOrders.length === 0 ? (
+   150→          /* Empty state: contextual message based on active filter */
+   151→          <Card>
+   152→            <CardContent className="py-12 text-center">
+   153→              <Package className="size-12 text-muted-foreground mx-auto mb-3" />
+   154→              <h3 className="font-medium mb-1">No orders found</h3>
+   155→              <p className="text-sm text-muted-foreground mb-4">
+   156→                {statusFilter !== 'ALL'
+   157→                  ? `You have no ${statusFilter.toLowerCase()} orders.`
+   158→                  : 'You haven\'t placed any orders yet.'}
+   159→              </p>
+   160→              <Button onClick={() => navigate('products')}>Start Shopping</Button>
+   161→            </CardContent>
+   162→          </Card>
+   163→        ) : (
+   164→          /* Order cards: each card shows order header, item thumbnails, total, and view button */
+   165→          <div className="space-y-4">
+   166→            {filteredOrders.map((order) => (
+   167→              <Card key={order.id} className="overflow-hidden">
+   168→                <CardContent className="p-0">
+   169→                  {/* Order Header - order number, status badge, date, and item count */}
+   170→                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-4 border-b bg-muted/30">
+   171→                    <div className="flex items-center gap-3">
+   172→                      <span className="font-semibold text-sm">
+   173→                        {order.orderNumber}
+   174→                      </span>
+   175→                      <Badge
+   176→                        variant="secondary"
+   177→                        className={STATUS_COLORS[order.status] || ''}
+   178→                      >
+   179→                        {order.status}
+   180→                      </Badge>
+   181→                    </div>
+   182→                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
+   183→                      <span className="flex items-center gap-1">
+   184→                        <Clock className="size-3.5" />
+   185→                        {formatDate(order.createdAt)}
+   186→                      </span>
+   187→                      <span>{order.items?.length || 0} item(s)</span>
+   188→                    </div>
+   189→                  </div>
+   190→
+   191→                  {/* Order Items Preview - up to 4 product image thumbnails with overflow count */}
+   192→                  <div className="p-4">
+   193→                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+   194→                      {/* Stacked image thumbnails showing product variety */}
+   195→                      <div className="flex -space-x-2">
+   196→                        {order.items?.slice(0, 4).map((item, idx) => (
+   197→                          <div
+   198→                            key={item.id}
+   199→                            className="w-10 h-10 rounded-lg border-2 border-background bg-muted flex items-center justify-center overflow-hidden"
+   200→                          >
+   201→                            {item.image ? (
+   202→                              <img
+   203→                                src={(() => { try { const p = JSON.parse(item.image); return Array.isArray(p) ? p[0] : item.image; } catch { return item.image; } })()}
+   204→                                alt={item.productName}
+   205→                                className="w-full h-full object-cover"
+   206→                              />
+   207→                            ) : (
+   208→                              <ShoppingBag className="size-4 text-muted-foreground" />
+   209→                            )}
+   210→                          </div>
+   211→                        ))}
+   212→                        {/* Overflow indicator when more than 4 items */}
+   213→                        {order.items && order.items.length > 4 && (
+   214→                          <div className="w-10 h-10 rounded-lg border-2 border-background bg-muted flex items-center justify-center text-xs font-medium text-muted-foreground">
+   215→                            +{order.items.length - 4}
+   216→                          </div>
+   217→                        )}
+   218→                      </div>
+   219→                      <div className="flex items-center gap-4">
+   220→                        {/* Order total amount */}
+   221→                        <span className="text-lg font-bold">
+   222→                          {formatCurrency(order.totalAmount)}
+   223→                        </span>
+   224→                        {/* View Details button navigates to order detail page */}
+   225→                        <Button
+   226→                          size="sm"
+   227→                          variant="outline"
+   228→                          className="gap-1"
+   229→                          onClick={() =>
+   230→                            navigate('account-order-detail', { orderId: order.id })
+   231→                          }
+   232→                        >
+   233→                          <Eye className="size-3.5" />
+   234→                          View Details
+   235→                        </Button>
+   236→                      </div>
+   237→                    </div>
+   238→                  </div>
+   239→                </CardContent>
+   240→              </Card>
+   241→            ))}
+   242→          </div>
+   243→        )}
+   244→      </motion.div>
+   245→    </AccountLayout>
+   246→  )
+   247→}
+   248→
+   249→// ============================================================================
+   250→// AccountOrderDetailPage
+   251→// ============================================================================
+   252→
+   253→/**
+   254→ * @function AccountOrderDetailPage
+   255→ * @description Renders the full detail view for a single order. Displays the
+   256→ * order status timeline, item list with images and pricing, shipping and
+   257→ * billing addresses, payment information, and an order summary breakdown.
+   258→ *
+   259→ * @state
+   260→ * - `isAuthenticated` - from useAuthGuard, ensures user is logged in
+   261→ * - `params` - from useRouterStore, contains `orderId` for the current order
+   262→ * - `navigate` - from useRouterStore, programmatic navigation function
+   263→ * - `goBack` - from useRouterStore, navigates to the previous page
+   264→ * - `order` - fetched via TanStack Query from /orders API endpoint using orderId
+   265→ *
+   266→ * @remarks
+   267→ * - Shows loading skeletons while the order data is being fetched
+   268→ * - Displays an error state card if the order is not found or API fails
+   269→ * - Shipping and billing addresses are parsed from JSON strings when necessary
+   270→ * - The status timeline renders icons for each step (Clock, CreditCard, Package, Truck, CheckCircle)
+   271→ * - Cancelled orders get a special red styling on the current timeline step
+   272→ */
+   273→export function AccountOrderDetailPage() {
+   274→  const isAuthenticated = useAuthGuard()
+   275→  const params = useRouterStore((s) => s.params)
+   276→  const navigate = useRouterStore((s) => s.navigate)
+   277→  const goBack = useRouterStore((s) => s.goBack)
+   278→  const orderId = params.orderId
+   279→
+   280→  // Fetch the specific order details from the API using orderId from route params
+   281→  const { data: order, isLoading, error } = useQuery({
+   282→    queryKey: ['order-detail', orderId],
+   283→    queryFn: async (): Promise<OrderWithItems | null> => {
+   284→      const result = await api.get<OrderWithItems>('/orders', { orderId })
+   285→      return result.success && result.data ? result.data : null
+   286→    },
+   287→    enabled: !!orderId,
+   288→  })
+   289→
+   290→  // Guard: don't render if not authenticated
+   291→  if (!isAuthenticated) return null
+   292→
+   293→  // Loading state: skeleton placeholders mimicking the detail layout
+   294→  if (isLoading) {
+   295→    return (
+   296→      <AccountLayout>
+   297→        <div className="space-y-4">
+   298→          <Skeleton className="h-8 w-48" />
+   299→          <Skeleton className="h-40 w-full" />
+   300→          <Skeleton className="h-60 w-full" />
+   301→          <Skeleton className="h-40 w-full" />
+   302→        </div>
+   303→      </AccountLayout>
+   304→    )
+   305→  }
+   306→
+   307→  // Error/not-found state: display a message and back-to-orders button
+   308→  if (error || !order) {
+   309→    return (
+   310→      <AccountLayout>
+   311→        <Card>
+   312→          <CardContent className="py-12 text-center">
+   313→            <AlertTriangle className="size-12 text-muted-foreground mx-auto mb-3" />
+   314→            <h3 className="font-medium mb-1">Order not found</h3>
+   315→            <p className="text-sm text-muted-foreground mb-4">
+   316→              The order you&apos;re looking for doesn&apos;t exist.
+   317→            </p>
+   318→            <Button variant="outline" onClick={() => navigate('account-orders')}>
+   319→              Back to Orders
+   320→            </Button>
+   321→          </CardContent>
+   322→        </Card>
+   323→      </AccountLayout>
+   324→    )
+   325→  }
+   326→
+   327→  // Parse shipping address from JSON string if necessary
+   328→  const shippingAddr = order.shippingAddress
+   329→    ? typeof order.shippingAddress === 'string'
+   330→      ? JSON.parse(order.shippingAddress)
+   331→      : order.shippingAddress
+   332→    : null
+   333→
+   334→  // Parse billing address from JSON string if necessary
+   335→  const billingAddr = order.billingAddress
+   336→    ? typeof order.billingAddress === 'string'
+   337→      ? JSON.parse(order.billingAddress)
+   338→      : order.billingAddress
+   339→    : null
+   340→
+   341→  // Determine the current position in the order status timeline
+   342→  const timelineSteps = ORDER_STATUS_STEPS
+   343→  const currentStepIndex = timelineSteps.indexOf(order.status)
+   344→
+   345→  return (
+   346→    <AccountLayout>
+   347→      <motion.div
+   348→        initial={{ opacity: 0, y: 10 }}
+   349→        animate={{ opacity: 1, y: 0 }}
+   350→        className="space-y-6"
+   351→      >
+   352→        {/* Header - back button, order number, date, and status badge */}
+   353→        <div className="flex items-center gap-3">
+   354→          <Button variant="ghost" size="icon" onClick={goBack}>
+   355→            <ArrowLeft className="size-5" />
+   356→          </Button>
+   357→          <div>
+   358→            <h1 className="text-2xl font-bold">Order {order.orderNumber}</h1>
+   359→            <p className="text-sm text-muted-foreground">
+   360→              Placed on {formatDate(order.createdAt)}
+   361→            </p>
+   362→          </div>
+   363→          {/* Status badge aligned to the right */}
+   364→          <Badge
+   365→            variant="secondary"
+   366→            className={`ml-auto ${STATUS_COLORS[order.status] || ''}`}
+   367→          >
+   368→            {order.status}
+   369→          </Badge>
+   370→        </div>
+   371→
+   372→        {/* Status Timeline - visual progression through order lifecycle steps */}
+   373→        <Card>
+   374→          <CardHeader className="pb-4">
+   375→            <CardTitle className="text-lg">Order Status</CardTitle>
+   376→          </CardHeader>
+   377→          <CardContent>
+   378→            <div className="flex items-center justify-between">
+   379→              {timelineSteps.map((step, idx) => {
+   380→                const isCompleted = idx <= currentStepIndex
+   381→                const isCurrent = idx === currentStepIndex
+   382→                const isCancelled = order.status === 'CANCELLED'
+   383→
+   384→                // Select the appropriate icon for each status step
+   385→                const stepIcon = (() => {
+   386→                  switch (step) {
+   387→                    case 'PENDING':
+   388→                      return Clock
+   389→                    case 'PAID':
+   390→                      return CreditCard
+   391→                    case 'PROCESSING':
+   392→                      return Package
+   393→                    case 'SHIPPED':
+   394→                      return Truck
+   395→                    case 'DELIVERED':
+   396→                      return CheckCircle2
+   397→                    default:
+   398→                      return Circle
+   399→                  }
+   400→                })()
+   401→                const StepIcon = stepIcon
+   402→
+   403→                return (
+   404→                  <div
+   405→                    key={step}
+   406→                    className="flex flex-col items-center flex-1 relative"
+   407→                  >
+   408→                    {/* Connector line between steps */}
+   409→                    {idx < timelineSteps.length - 1 && (
+   410→                      <div
+   411→                        className={`absolute top-4 left-1/2 w-full h-0.5 ${
+   412→                          isCancelled
+   413→                            ? 'bg-red-200 dark:bg-red-900/30'
+   414→                            : idx < currentStepIndex
+   415→                              ? 'bg-green-400'
+   416→                              : 'bg-muted'
+   417→                        }`}
+   418→                      />
+   419→                    )}
+   420→                    {/* Step circle with icon - green for completed, red for cancelled current, muted for future */}
+   421→                    <div
+   422→                      className={`relative z-10 w-8 h-8 rounded-full flex items-center justify-center border-2 ${
+   423→                        isCancelled && isCurrent
+   424→                          ? 'border-red-400 bg-red-100 text-red-500 dark:bg-red-900/30 dark:text-red-400'
+   425→                          : isCompleted
+   426→                            ? 'border-green-400 bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400'
+   427→                            : 'border-muted-foreground/30 bg-background text-muted-foreground'
+   428→                      }`}
+   429→                    >
+   430→                      <StepIcon className="size-3.5" />
+   431→                    </div>
+   432→                    {/* Step label text */}
+   433→                    <span
+   434→                      className={`text-xs mt-2 text-center ${
+   435→                        isCompleted
+   436→                          ? 'font-medium text-foreground'
+   437→                          : 'text-muted-foreground'
+   438→                      }`}
+   439→                    >
+   440→                      {step.charAt(0) + step.slice(1).toLowerCase()}
+   441→                    </span>
+   442→                  </div>
+   443→                )
+   444→              })}
+   445→            </div>
+   446→            {/* Tracking number display - shown only when a tracking number exists */}
+   447→            {order.trackingNumber && (
+   448→              <div className="mt-4 p-3 bg-muted rounded-lg flex items-center gap-2">
+   449→                <Truck className="size-4 text-muted-foreground" />
+   450→                <span className="text-sm">
+   451→                  Tracking:{' '}
+   452→                  <span className="font-mono font-medium">
+   453→                    {order.trackingNumber}
+   454→                  </span>
+   455→                </span>
+   456→              </div>
+   457→            )}
+   458→          </CardContent>
+   459→        </Card>
+   460→
+   461→        {/* Order Items - list of products with images, names, variants, quantities, and totals */}
+   462→        <Card>
+   463→          <CardHeader className="pb-4">
+   464→            <CardTitle className="text-lg">Items</CardTitle>
+   465→          </CardHeader>
+   466→          <CardContent className="space-y-4">
+   467→            {order.items?.map((item) => (
+   468→              <div
+   469→                key={item.id}
+   470→                className="flex items-center gap-4 p-3 rounded-lg border"
+   471→              >
+   472→                {/* Product image thumbnail */}
+   473→                <div className="w-16 h-16 rounded-lg bg-muted flex items-center justify-center overflow-hidden shrink-0">
+   474→                  {item.image ? (
+   475→                    <img
+   476→                      src={
+   477→                        (() => {
+   478→                          try {
+   479→                            const parsed = JSON.parse(item.image)
+   480→                            return Array.isArray(parsed) ? parsed[0] : item.image
+   481→                          } catch {
+   482→                            return item.image
+   483→                          }
+   484→                        })()
+   485→                      }
+   486→                      alt={item.productName}
+   487→                      className="w-full h-full object-cover"
+   488→                    />
+   489→                  ) : (
+   490→                    <ShoppingBag className="size-6 text-muted-foreground" />
+   491→                  )}
+   492→                </div>
+   493→                {/* Item details: name, variant, quantity x price */}
+   494→                <div className="flex-1 min-w-0">
+   495→                  <p className="font-medium text-sm truncate">
+   496→                    {item.productName}
+   497→                  </p>
+   498→                  {item.variantName && (
+   499→                    <p className="text-xs text-muted-foreground">
+   500→                      {item.variantName}
+   501→                    </p>
+   502→                  )}
+   503→                  <p className="text-xs text-muted-foreground">
+   504→                    Qty: {item.quantity} &times; {formatCurrency(item.price)}
+   505→                  </p>
+   506→                </div>
+   507→                {/* Item total */}
+   508→                <span className="font-semibold text-sm shrink-0">
+   509→                  {formatCurrency(item.total)}
+   510→                </span>
+   511→              </div>
+   512→            ))}
+   513→          </CardContent>
+   514→        </Card>
+   515→
+   516→        {/* Addresses & Payment - side-by-side shipping and billing address cards */}
+   517→        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   518→          {/* Shipping Address */}
+   519→          {shippingAddr && (
+   520→            <Card>
+   521→              <CardHeader className="pb-3">
+   522→                <CardTitle className="text-sm flex items-center gap-2">
+   523→                  <Truck className="size-4" /> Shipping Address
+   524→                </CardTitle>
+   525→              </CardHeader>
+   526→              <CardContent className="text-sm text-muted-foreground space-y-0.5">
+   527→                <p className="font-medium text-foreground">
+   528→                  {shippingAddr.firstName} {shippingAddr.lastName}
+   529→                </p>
+   530→                <p>{shippingAddr.street1}</p>
+   531→                {shippingAddr.street2 && <p>{shippingAddr.street2}</p>}
+   532→                <p>
+   533→                  {shippingAddr.city}, {shippingAddr.state}{' '}
+   534→                  {shippingAddr.postalCode}
+   535→                </p>
+   536→                <p>{shippingAddr.country}</p>
+   537→                {shippingAddr.phone && <p>{shippingAddr.phone}</p>}
+   538→              </CardContent>
+   539→            </Card>
+   540→          )}
+   541→
+   542→          {/* Billing Address */}
+   543→          {billingAddr && (
+   544→            <Card>
+   545→              <CardHeader className="pb-3">
+   546→                <CardTitle className="text-sm flex items-center gap-2">
+   547→                  <CreditCard className="size-4" /> Billing Address
+   548→                </CardTitle>
+   549→              </CardHeader>
+   550→              <CardContent className="text-sm text-muted-foreground space-y-0.5">
+   551→                <p className="font-medium text-foreground">
+   552→                  {billingAddr.firstName} {billingAddr.lastName}
+   553→                </p>
+   554→                <p>{billingAddr.street1}</p>
+   555→                {billingAddr.street2 && <p>{billingAddr.street2}</p>}
+   556→                <p>
+   557→                  {billingAddr.city}, {billingAddr.state}{' '}
+   558→                  {billingAddr.postalCode}
+   559→                </p>
+   560→                <p>{billingAddr.country}</p>
+   561→                {billingAddr.phone && <p>{billingAddr.phone}</p>}
+   562→              </CardContent>
+   563→            </Card>
+   564→          )}
+   565→        </div>
+   566→
+   567→        {/* Payment Info - method and payment status */}
+   568→        <Card>
+   569→          <CardHeader className="pb-3">
+   570→            <CardTitle className="text-sm flex items-center gap-2">
+   571→              <CreditCard className="size-4" /> Payment Information
+   572→            </CardTitle>
+   573→          </CardHeader>
+   574→          <CardContent>
+   575→            <div className="flex items-center justify-between text-sm">
+   576→              <span className="text-muted-foreground">Method</span>
+   577→              <span className="font-medium">
+   578→                {order.payment?.method || 'N/A'}
+   579→              </span>
+   580→            </div>
+   581→            <div className="flex items-center justify-between text-sm mt-2">
+   582→              <span className="text-muted-foreground">Payment Status</span>
+   583→              <Badge
+   584→                variant="secondary"
+   585→                className={
+   586→                  STATUS_COLORS[order.payment?.status || ''] || ''
+   587→                }
+   588→              >
+   589→                {order.payment?.status || 'N/A'}
+   590→              </Badge>
+   591→            </div>
+   592→          </CardContent>
+   593→        </Card>
+   594→
+   595→        {/* Order Total Breakdown - subtotal, shipping, tax, discount, and final total */}
+   596→        <Card>
+   597→          <CardHeader className="pb-3">
+   598→            <CardTitle className="text-sm">Order Summary</CardTitle>
+   599→          </CardHeader>
+   600→          <CardContent className="space-y-2 text-sm">
+   601→            {/* Subtotal */}
+   602→            <div className="flex justify-between">
+   603→              <span className="text-muted-foreground">Subtotal</span>
+   604→              <span>{formatCurrency(order.subtotal)}</span>
+   605→            </div>
+   606→            {/* Shipping cost - shows "Free" if zero */}
+   607→            <div className="flex justify-between">
+   608→              <span className="text-muted-foreground">Shipping</span>
+   609→              <span>
+   610→                {order.shippingAmount > 0
+   611→                  ? formatCurrency(order.shippingAmount)
+   612→                  : 'Free'}
+   613→              </span>
+   614→            </div>
+   615→            {/* Tax amount */}
+   616→            <div className="flex justify-between">
+   617→              <span className="text-muted-foreground">Tax</span>
+   618→              <span>{formatCurrency(order.taxAmount)}</span>
+   619→            </div>
+   620→            {/* Discount - shown only when a discount was applied */}
+   621→            {order.discountAmount > 0 && (
+   622→              <div className="flex justify-between text-green-600 dark:text-green-400">
+   623→                <span>Discount</span>
+   624→                <span>-{formatCurrency(order.discountAmount)}</span>
+   625→              </div>
+   626→            )}
+   627→            <Separator />
+   628→            {/* Final total */}
+   629→            <div className="flex justify-between font-bold text-base">
+   630→              <span>Total</span>
+   631→              <span>{formatCurrency(order.totalAmount)}</span>
+   632→            </div>
+   633→          </CardContent>
+   634→        </Card>
+   635→      </motion.div>
+   636→    </AccountLayout>
+   637→  )
+   638→}
+   639→

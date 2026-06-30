@@ -1,0 +1,1417 @@
+     1→/**
+     2→ * @file product-detail-page.tsx
+     3→ * @description Product detail page for the ShopForge e-commerce application.
+     4→ * Displays comprehensive product information including an image gallery with zoom,
+     5→ * variant selection, quantity picker, add-to-cart/buy-now actions, reviews,
+     6→ * ratings distribution, specifications, and related products.
+     7→ *
+     8→ * @key_features
+     9→ * - Image gallery with mouse-follow zoom effect and thumbnail navigation
+    10→ * - Variant selector (size, color, etc.) with stock-aware disabling
+    11→ * - Quantity selector clamped to available inventory
+    12→ * - Flash sale countdown timer with dynamic pricing
+    13→ * - Stock status indicator (In Stock / Low Stock / Out of Stock)
+    14→ * - Tabbed content: Description, Specifications, Reviews
+    15→ * - Rating distribution chart with progress bars
+    16→ * - Individual review cards with helpful vote buttons
+    17→ * - Related products horizontal scroll section
+    18→ * - Breadcrumb navigation reflecting product category
+    19→ * - Trust badges (Secure Payment, 30-Day Returns, Fast Shipping)
+    20→ */
+    21→
+    22→'use client'
+    23→
+    24→import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
+    25→import { useQuery } from '@tanstack/react-query'
+    26→import { motion, AnimatePresence } from 'framer-motion'
+    27→import {
+    28→  Star,
+    29→  Heart,
+    30→  ShoppingCart,
+    31→  Minus,
+    32→  Plus,
+    33→  Truck,
+    34→  ShieldCheck,
+    35→  RotateCcw,
+    36→  Package,
+    37→  ThumbsUp,
+    38→  ThumbsDown,
+    39→  Home,
+    40→  ChevronRight,
+    41→  Zap,
+    42→  Clock,
+    43→  Eye,
+    44→  CheckCircle2,
+    45→  AlertTriangle,
+    46→  XCircle,
+    47→  ArrowLeft,
+    48→} from 'lucide-react'
+    49→import { useRouterStore } from '@/stores/router-store'
+    50→import { useCartStore, type LocalCartItem } from '@/stores/cart-store'
+    51→import { useWishlistStore } from '@/stores/wishlist-store'
+    52→import { api } from '@/lib/api-client'
+    53→import type {
+    54→  ProductDetail,
+    55→  ProductListItem,
+    56→  ReviewItem,
+    57→} from '@/types'
+    58→
+    59→import { Button } from '@/components/ui/button'
+    60→import {
+    61→  Card,
+    62→  CardContent,
+    63→  CardHeader,
+    64→  CardTitle,
+    65→} from '@/components/ui/card'
+    66→import { Badge } from '@/components/ui/badge'
+    67→import { Skeleton } from '@/components/ui/skeleton'
+    68→import { Separator } from '@/components/ui/separator'
+    69→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+    70→import { Progress } from '@/components/ui/progress'
+    71→import {
+    72→  Breadcrumb,
+    73→  BreadcrumbItem,
+    74→  BreadcrumbLink,
+    75→  BreadcrumbList,
+    76→  BreadcrumbPage,
+    77→  BreadcrumbSeparator,
+    78→} from '@/components/ui/breadcrumb'
+    79→import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
+    80→
+    81→// ============================================================================
+    82→// Helpers
+    83→// ============================================================================
+    84→
+    85→/**
+    86→ * Parses a JSON string of image URLs into a string array.
+    87→ * Safely handles malformed JSON by returning an empty array on parse failure.
+    88→ *
+    89→ * @param {string} imagesStr - JSON-encoded string of image URL array.
+    90→ * @returns {string[]} Array of image URL strings, or empty array if parsing fails.
+    91→ */
+    92→function parseImages(imagesStr: string): string[] {
+    93→  try {
+    94→    const parsed = JSON.parse(imagesStr)
+    95→    return Array.isArray(parsed) ? parsed : []
+    96→  } catch {
+    97→    return []
+    98→  }
+    99→}
+   100→
+   101→/**
+   102→ * Formats a numeric price value into a USD currency string.
+   103→ *
+   104→ * @param {number} price - The price value to format.
+   105→ * @returns {string} Formatted price string (e.g., "$29.99").
+   106→ */
+   107→function formatPrice(price: number): string {
+   108→  return new Intl.NumberFormat('en-US', {
+   109→    style: 'currency',
+   110→    currency: 'USD',
+   111→  }).format(price)
+   112→}
+   113→
+   114→/**
+   115→ * Calculates the discount percentage between the selling price and the compare-at price.
+   116→ * Returns 0 if the compare price is zero or negative.
+   117→ *
+   118→ * @param {number} price - The current selling price.
+   119→ * @param {number} comparePrice - The original/compare-at price.
+   120→ * @returns {number} The discount percentage rounded to the nearest integer (e.g., 25).
+   121→ */
+   122→function getDiscountPercent(price: number, comparePrice: number): number {
+   123→  if (comparePrice <= 0) return 0
+   124→  return Math.round(((comparePrice - price) / comparePrice) * 100)
+   125→}
+   126→
+   127→/**
+   128→ * Color palettes used for gradient placeholders when no product image is available.
+   129→ * Cycles through various color combinations for visual variety.
+   130→ */
+   131→const GRADIENT_PALETTES = [
+   132→  ['from-rose-400 to-orange-300'],
+   133→  ['from-violet-400 to-purple-300'],
+   134→  ['from-emerald-400 to-teal-300'],
+   135→  ['from-amber-400 to-yellow-300'],
+   136→  ['from-cyan-400 to-sky-300'],
+   137→  ['from-pink-400 to-rose-300'],
+   138→  ['from-indigo-400 to-blue-300'],
+   139→  ['from-lime-400 to-green-300'],
+   140→]
+   141→
+   142→/**
+   143→ * Returns a gradient class string for a given index, cycling through the palette.
+   144→ * Used to generate unique placeholder backgrounds for products without images.
+   145→ *
+   146→ * @param {number} index - The index to get a gradient for.
+   147→ * @returns {string} Tailwind gradient class string (e.g., "from-rose-400 to-orange-300").
+   148→ */
+   149→function getGradientForIndex(index: number): string {
+   150→  return GRADIENT_PALETTES[index % GRADIENT_PALETTES.length][0]
+   151→}
+   152→
+   153→// ============================================================================
+   154→// Flash Sale Countdown
+   155→// ============================================================================
+   156→
+   157→/**
+   158→ * FlashSaleCountdown - Displays a live countdown timer for an active flash sale.
+   159→ * Shows hours, minutes, and seconds in styled digit boxes with a lightning icon.
+   160→ *
+   161→ * @param {Object} props
+   162→ * @param {string} props.endsAt - ISO date string representing when the flash sale ends.
+   163→ *
+   164→ * @state
+   165→ * - timeLeft: { hours, minutes, seconds } updated every second via setInterval
+   166→ */
+   167→function FlashSaleCountdown({ endsAt }: { endsAt: string }) {
+   168→  const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 })
+   169→
+   170→  // Calculate and update countdown every second
+   171→  useEffect(() => {
+   172→    const calculate = () => {
+   173→      const end = new Date(endsAt).getTime()
+   174→      const now = Date.now()
+   175→      const diff = Math.max(0, end - now)
+   176→      setTimeLeft({
+   177→        hours: Math.floor(diff / (1000 * 60 * 60)),
+   178→        minutes: Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)),
+   179→        seconds: Math.floor((diff % (1000 * 60)) / 1000),
+   180→      })
+   181→    }
+   182→    calculate()
+   183→    const interval = setInterval(calculate, 1000)
+   184→    return () => clearInterval(interval)
+   185→  }, [endsAt])
+   186→
+   187→  return (
+   188→    <motion.div
+   189→      initial={{ opacity: 0, y: -10 }}
+   190→      animate={{ opacity: 1, y: 0 }}
+   191→      className="flex items-center gap-2 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 px-4 py-3"
+   192→    >
+   193→      <Zap className="size-5 text-red-500 fill-red-500" />
+   194→      <span className="text-sm font-semibold text-red-600 dark:text-red-400">Flash Sale</span>
+   195→      {/* Countdown digits */}
+   196→      <div className="flex items-center gap-1 ml-2">
+   197→        <Clock className="size-4 text-red-500" />
+   198→        <span className="text-xs text-red-500 dark:text-red-400">Ends in</span>
+   199→        {[
+   200→          { value: timeLeft.hours, label: 'h' },
+   201→          { value: timeLeft.minutes, label: 'm' },
+   202→          { value: timeLeft.seconds, label: 's' },
+   203→        ].map((unit, i) => (
+   204→          <span key={i} className="flex items-center">
+   205→            <span className="inline-flex items-center justify-center bg-red-600 text-white text-xs font-bold rounded px-1.5 py-0.5 min-w-[28px]">
+   206→              {String(unit.value).padStart(2, '0')}
+   207→            </span>
+   208→            <span className="text-red-500 text-xs mx-0.5">{unit.label}</span>
+   209→          </span>
+   210→        ))}
+   211→      </div>
+   212→    </motion.div>
+   213→  )
+   214→}
+   215→
+   216→// ============================================================================
+   217→// Star Rating Display
+   218→// ============================================================================
+   219→
+   220→/**
+   221→ * StarRating - Renders 1–5 star icons based on a numeric rating value.
+   222→ * Supports three sizes: sm (3.5), md (4), and lg (5).
+   223→ * Stars can be fully filled, half-filled (for fractional ratings), or empty.
+   224→ *
+   225→ * @param {Object} props
+   226→ * @param {number} props.rating - The rating value (e.g., 4.3).
+   227→ * @param {'sm' | 'md' | 'lg'} [props.size='sm'] - The icon size variant.
+   228→ * @returns {JSX.Element} A row of star icons reflecting the rating.
+   229→ */
+   230→function StarRating({ rating, size = 'sm' }: { rating: number; size?: 'sm' | 'md' | 'lg' }) {
+   231→  const sizeClass = size === 'lg' ? 'size-5' : size === 'md' ? 'size-4' : 'size-3.5'
+   232→  return (
+   233→    <div className="flex items-center gap-0.5">
+   234→      {Array.from({ length: 5 }).map((_, i) => (
+   235→        <Star
+   236→          key={i}
+   237→          className={`${sizeClass} ${
+   238→            i < Math.floor(rating)
+   239→              ? 'fill-amber-400 text-amber-400'           // Fully filled star
+   240→              : i < rating
+   241→                ? 'fill-amber-400/50 text-amber-400'      // Half-filled star (partial fill)
+   242→                : 'text-muted-foreground/30'              // Empty star
+   243→          }`}
+   244→        />
+   245→      ))}
+   246→    </div>
+   247→  )
+   248→}
+   249→
+   250→// ============================================================================
+   251→// Stock Status Badge
+   252→// ============================================================================
+   253→
+   254→/**
+   255→ * StockStatus - Displays the current stock status of a product as a colored badge.
+   256→ * Calculates available inventory (total quantity minus reserved) and determines
+   257→ * the status: In Stock, Low Stock, or Out of Stock.
+   258→ *
+   259→ * @param {Object} props
+   260→ * @param {ProductDetail['inventory']} props.inventory - The product's inventory records array.
+   261→ *
+   262→ * @logic
+   263→ * - Available = total quantity - total reserved across all inventory records
+   264→ * - Low stock threshold is taken from the first inventory record's lowStockThreshold (default: 10)
+   265→ * - Out of Stock: available <= 0
+   266→ * - Low Stock: available <= threshold
+   267→ * - In Stock: available > threshold
+   268→ */
+   269→function StockStatus({ inventory }: { inventory: ProductDetail['inventory'] }) {
+   270→  // Calculate total available inventory
+   271→  const totalQty = inventory.reduce((sum, inv) => sum + inv.quantity, 0)
+   272→  const totalReserved = inventory.reduce((sum, inv) => sum + inv.reserved, 0)
+   273→  const available = totalQty - totalReserved
+   274→  const lowThreshold = inventory[0]?.lowStockThreshold ?? 10
+   275→
+   276→  let status: 'in-stock' | 'low-stock' | 'out-of-stock'
+   277→  let label: string
+   278→
+   279→  // Determine stock status based on available quantity
+   280→  if (available <= 0) {
+   281→    status = 'out-of-stock'
+   282→    label = 'Out of Stock'
+   283→  } else if (available <= lowThreshold) {
+   284→    status = 'low-stock'
+   285→    label = `Low Stock (${available} left)`
+   286→  } else {
+   287→    status = 'in-stock'
+   288→    label = 'In Stock'
+   289→  }
+   290→
+   291→  // Visual configuration for each status: icon, text color, background color
+   292→  const config = {
+   293→    'in-stock': { icon: CheckCircle2, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950/30' },
+   294→    'low-stock': { icon: AlertTriangle, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950/30' },
+   295→    'out-of-stock': { icon: XCircle, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-950/30' },
+   296→  }
+   297→
+   298→  const Icon = config[status].icon
+   299→
+   300→  return (
+   301→    <span className={`inline-flex items-center gap-1.5 text-sm font-medium px-2.5 py-1 rounded-md ${config[status].bg} ${config[status].color}`}>
+   302→      <Icon className="size-4" />
+   303→      {label}
+   304→    </span>
+   305→  )
+   306→}
+   307→
+   308→// ============================================================================
+   309→// Review Card
+   310→// ============================================================================
+   311→
+   312→/**
+   313→ * ReviewCard - Displays a single customer review with user avatar, rating,
+   314→ * title, content, date, verified badge, and helpful vote buttons.
+   315→ *
+   316→ * @param {Object} props
+   317→ * @param {ReviewItem} props.review - The review data to display.
+   318→ *
+   319→ * @state
+   320→ * - helpfulYes: Local count of "helpful yes" votes (optimistically updated)
+   321→ * - helpfulNo: Local count of "helpful no" votes (optimistically updated)
+   322→ * - voted: Tracks the user's current vote ('yes', 'no', or null) to allow toggle behavior
+   323→ */
+   324→function ReviewCard({ review }: { review: ReviewItem }) {
+   325→  const [helpfulYes, setHelpfulYes] = useState(review.helpfulYes)
+   326→  const [helpfulNo, setHelpfulNo] = useState(review.helpfulNo)
+   327→  const [voted, setVoted] = useState<'yes' | 'no' | null>(null)
+   328→
+   329→  /**
+   330→   * Handles clicking the "Helpful" (thumbs up/down) buttons.
+   331→   * Implements a toggle behavior: clicking the same vote again would undo it,
+   332→   * and clicking a different vote switches the vote. Optimistically updates
+   333→   * the local counts without making an API call.
+   334→   *
+   335→   * @param {'yes' | 'no'} type - Which helpful button was clicked.
+   336→   */
+   337→  const handleHelpful = (type: 'yes' | 'no') => {
+   338→    if (voted === type) return  // Already voted this way; no-op
+   339→    // Undo previous vote if switching
+   340→    if (voted === 'yes') setHelpfulYes((p) => p - 1)
+   341→    if (voted === 'no') setHelpfulNo((p) => p - 1)
+   342→    // Apply new vote
+   343→    if (type === 'yes') setHelpfulYes((p) => p + 1)
+   344→    if (type === 'no') setHelpfulNo((p) => p + 1)
+   345→    setVoted(type)
+   346→  }
+   347→
+   348→  // Format the review creation date for display
+   349→  const dateStr = new Date(review.createdAt).toLocaleDateString('en-US', {
+   350→    year: 'numeric',
+   351→    month: 'short',
+   352→    day: 'numeric',
+   353→  })
+   354→
+   355→  return (
+   356→    <motion.div
+   357→      initial={{ opacity: 0, y: 10 }}
+   358→      animate={{ opacity: 1, y: 0 }}
+   359→      className="py-4"
+   360→    >
+   361→      <div className="flex items-start gap-3">
+   362→        {/* User avatar - gradient circle with first letter of name */}
+   363→        <div className="size-10 rounded-full bg-gradient-to-br from-violet-400 to-purple-500 flex items-center justify-center text-white text-sm font-bold shrink-0">
+   364→          {(review.user.name || 'U').charAt(0).toUpperCase()}
+   365→        </div>
+   366→        <div className="flex-1 min-w-0">
+   367→          {/* Reviewer name, verified badge, and date */}
+   368→          <div className="flex items-center gap-2 flex-wrap">
+   369→            <span className="font-medium text-sm">{review.user.name || 'Anonymous'}</span>
+   370→            {/* Verified purchase badge */}
+   371→            {review.isVerified && (
+   372→              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5 gap-0.5">
+   373→                <CheckCircle2 className="size-3" />
+   374→                Verified
+   375→              </Badge>
+   376→            )}
+   377→            <span className="text-xs text-muted-foreground">{dateStr}</span>
+   378→          </div>
+   379→          {/* Star rating for this review */}
+   380→          <div className="mt-1">
+   381→            <StarRating rating={review.rating} size="sm" />
+   382→          </div>
+   383→          {/* Review title (optional) */}
+   384→          {review.title && (
+   385→            <h4 className="font-semibold text-sm mt-1.5">{review.title}</h4>
+   386→          )}
+   387→          {/* Review content (optional) */}
+   388→          {review.content && (
+   389→            <p className="text-sm text-muted-foreground mt-1 leading-relaxed">{review.content}</p>
+   390→          )}
+   391→          {/* Helpful vote buttons with visual feedback for the active vote */}
+   392→          <div className="flex items-center gap-3 mt-3">
+   393→            <span className="text-xs text-muted-foreground">Helpful?</span>
+   394→            <button
+   395→              onClick={() => handleHelpful('yes')}
+   396→              className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md transition-colors ${
+   397→                voted === 'yes'
+   398→                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+   399→                  : 'hover:bg-accent text-muted-foreground'
+   400→              }`}
+   401→            >
+   402→              <ThumbsUp className="size-3" />
+   403→              {helpfulYes}
+   404→            </button>
+   405→            <button
+   406→              onClick={() => handleHelpful('no')}
+   407→              className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md transition-colors ${
+   408→                voted === 'no'
+   409→                  ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+   410→                  : 'hover:bg-accent text-muted-foreground'
+   411→              }`}
+   412→            >
+   413→              <ThumbsDown className="size-3" />
+   414→              {helpfulNo}
+   415→            </button>
+   416→          </div>
+   417→        </div>
+   418→      </div>
+   419→    </motion.div>
+   420→  )
+   421→}
+   422→
+   423→// ============================================================================
+   424→// Rating Distribution
+   425→// ============================================================================
+   426→
+   427→/**
+   428→ * RatingDistribution - Displays a visual summary of review ratings.
+   429→ * Shows the average rating as a large number with stars, and a
+   430→ * horizontal bar chart showing the count for each star level (5 to 1).
+   431→ *
+   432→ * @param {Object} props
+   433→ * @param {ReviewItem[]} props.reviews - Array of all reviews for the product.
+   434→ * @param {number} props.avgRating - The calculated average rating for the product.
+   435→ *
+   436→ * @logic
+   437→ * - Distribution is computed by rounding each review's rating and tallying per star level
+   438→ * - The array is reversed to display 5★ at the top and 1★ at the bottom
+   439→ * - Progress bar width represents the percentage of reviews at each star level
+   440→ */
+   441→function RatingDistribution({ reviews, avgRating }: { reviews: ReviewItem[]; avgRating: number }) {
+   442→  // Calculate the count of reviews for each star level (1–5)
+   443→  const distribution = useMemo(() => {
+   444→    const dist = [0, 0, 0, 0, 0]
+   445→    reviews.forEach((r) => {
+   446→      const idx = Math.min(Math.max(Math.round(r.rating) - 1, 0), 4)
+   447→      dist[idx]++
+   448→    })
+   449→    return dist.reverse()  // Reverse so 5★ is first
+   450→  }, [reviews])
+   451→
+   452→  // Use at least 1 as the total to avoid division by zero for progress bars
+   453→  const total = reviews.length || 1
+   454→
+   455→  return (
+   456→    <div className="flex flex-col sm:flex-row gap-6 items-start">
+   457→      {/* Average rating summary - large number + stars + review count */}
+   458→      <div className="text-center sm:text-left shrink-0">
+   459→        <div className="text-5xl font-bold">{avgRating.toFixed(1)}</div>
+   460→        <div className="mt-1">
+   461→          <StarRating rating={avgRating} size="md" />
+   462→        </div>
+   463→        <div className="text-sm text-muted-foreground mt-1">{reviews.length} review{reviews.length !== 1 ? 's' : ''}</div>
+   464→      </div>
+   465→      {/* Distribution bar chart - 5★ to 1★ with progress bars */}
+   466→      <div className="flex-1 w-full space-y-2">
+   467→        {distribution.map((count, i) => {
+   468→          const stars = 5 - i
+   469→          const percent = (count / total) * 100
+   470→          return (
+   471→            <div key={stars} className="flex items-center gap-2">
+   472→              <span className="text-xs text-muted-foreground w-8 shrink-0">{stars}★</span>
+   473→              <Progress value={percent} className="h-2 flex-1" />
+   474→              <span className="text-xs text-muted-foreground w-8 text-right shrink-0">{count}</span>
+   475→            </div>
+   476→          )
+   477→        })}
+   478→      </div>
+   479→    </div>
+   480→  )
+   481→}
+   482→
+   483→// ============================================================================
+   484→// Related Product Card
+   485→// ============================================================================
+   486→
+   487→/**
+   488→ * RelatedProductCard - A compact card for displaying related products in a horizontal scroll.
+   489→ * Shows product image, discount badge, brand, name, rating, and price.
+   490→ * Clicking navigates to that product's detail page.
+   491→ *
+   492→ * @param {Object} props
+   493→ * @param {ProductListItem} props.product - The related product data to display.
+   494→ */
+   495→function RelatedProductCard({ product }: { product: ProductListItem }) {
+   496→  const navigate = useRouterStore((s) => s.navigate)
+   497→  const images = parseImages(product.images)
+   498→  // Calculate available inventory and discount percentage
+   499→  const availableQty = product.inventory.reduce((s, i) => s + i.quantity - i.reserved, 0)
+   500→  const discount = product.comparePrice
+   501→    ? getDiscountPercent(product.price, product.comparePrice)
+   502→    : 0
+   503→
+   504→  return (
+   505→    <motion.div
+   506→      whileHover={{ y: -4 }}
+   507→      transition={{ duration: 0.2 }}
+   508→      className="shrink-0 w-[200px] sm:w-[220px]"
+   509→    >
+   510→      <Card
+   511→        className="cursor-pointer overflow-hidden py-0 gap-0 border transition-shadow hover:shadow-lg"
+   512→        onClick={() => navigate('product-detail', { id: product.slug || product.id })}
+   513→      >
+   514→        {/* Product image or gradient placeholder */}
+   515→        <div className="relative aspect-square overflow-hidden">
+   516→          {images.length > 0 ? (
+   517→            <img
+   518→              src={images[0]}
+   519→              alt={product.name}
+   520→              className="size-full object-cover transition-transform duration-300 hover:scale-105"
+   521→            />
+   522→          ) : (
+   523→            <div className={`size-full bg-gradient-to-br ${getGradientForIndex(0)} flex items-center justify-center`}>
+   524→              <span className="text-3xl font-bold text-white/80">{product.name.charAt(0)}</span>
+   525→            </div>
+   526→          )}
+   527→          {/* Discount badge */}
+   528→          {discount > 0 && (
+   529→            <Badge className="absolute top-2 left-2 bg-red-500 text-white text-[10px] px-1.5">
+   530→              {`-${discount}%`}
+   531→            </Badge>
+   532→          )}
+   533→        </div>
+   534→        <CardContent className="p-3 space-y-1">
+   535→          {/* Brand name */}
+   536→          <p className="text-xs text-muted-foreground line-clamp-1">{product.brand?.name}</p>
+   537→          {/* Product name - 2 line clamp */}
+   538→          <h3 className="text-sm font-medium line-clamp-2 leading-snug min-h-[2.5rem]">{product.name}</h3>
+   539→          {/* Rating with review count */}
+   540→          <div className="flex items-center gap-1">
+   541→            <StarRating rating={product.avgRating} size="sm" />
+   542→            <span className="text-[10px] text-muted-foreground">({product.reviewCount})</span>
+   543→          </div>
+   544→          {/* Price with optional strikethrough compare price */}
+   545→          <div className="flex items-center gap-2">
+   546→            <span className="text-sm font-bold">{formatPrice(product.price)}</span>
+   547→            {product.comparePrice && product.comparePrice > product.price && (
+   548→              <span className="text-xs text-muted-foreground line-through">
+   549→                {formatPrice(product.comparePrice)}
+   550→              </span>
+   551→            )}
+   552→          </div>
+   553→        </CardContent>
+   554→      </Card>
+   555→    </motion.div>
+   556→  )
+   557→}
+   558→
+   559→// ============================================================================
+   560→// Loading Skeleton
+   561→// ============================================================================
+   562→
+   563→/**
+   564→ * ProductDetailSkeleton - A loading placeholder that mimics the ProductDetailPage layout.
+   565→ * Includes skeleton shapes for the breadcrumb, image gallery, product info,
+   566→ * and tab content areas to prevent layout shift while data loads.
+   567→ *
+   568→ * @returns {JSX.Element} A full-page skeleton matching the product detail page structure.
+   569→ */
+   570→function ProductDetailSkeleton() {
+   571→  return (
+   572→    <div className="space-y-8">
+   573→      {/* Breadcrumb skeleton */}
+   574→      <div className="flex items-center gap-2">
+   575→        <Skeleton className="h-4 w-12" />
+   576→        <Skeleton className="h-4 w-4" />
+   577→        <Skeleton className="h-4 w-20" />
+   578→        <Skeleton className="h-4 w-4" />
+   579→        <Skeleton className="h-4 w-32" />
+   580→      </div>
+   581→
+   582→      {/* Main content skeleton - 2 column layout */}
+   583→      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
+   584→        {/* Gallery skeleton - main image + thumbnail row */}
+   585→        <div className="space-y-4">
+   586→          <Skeleton className="aspect-square w-full rounded-xl" />
+   587→          <div className="flex gap-3">
+   588→            {[0, 1, 2, 3].map((i) => (
+   589→              <Skeleton key={i} className="size-20 rounded-lg" />
+   590→            ))}
+   591→          </div>
+   592→        </div>
+   593→
+   594→        {/* Info skeleton - brand, name, rating, price, description, buttons */}
+   595→        <div className="space-y-4">
+   596→          <Skeleton className="h-4 w-24" />
+   597→          <Skeleton className="h-8 w-3/4" />
+   598→          <div className="flex items-center gap-2">
+   599→            <Skeleton className="h-5 w-28" />
+   600→            <Skeleton className="h-4 w-16" />
+   601→          </div>
+   602→          <div className="flex items-center gap-3">
+   603→            <Skeleton className="h-8 w-24" />
+   604→            <Skeleton className="h-6 w-20" />
+   605→          </div>
+   606→          <Skeleton className="h-16 w-full" />
+   607→          <Skeleton className="h-10 w-full" />
+   608→          <div className="flex gap-3">
+   609→            <Skeleton className="h-12 w-40" />
+   610→            <Skeleton className="h-12 w-32" />
+   611→            <Skeleton className="h-12 w-12" />
+   612→          </div>
+   613→        </div>
+   614→      </div>
+   615→
+   616→      {/* Tabs skeleton */}
+   617→      <Skeleton className="h-10 w-72" />
+   618→      <Skeleton className="h-48 w-full" />
+   619→    </div>
+   620→  )
+   621→}
+   622→
+   623→// ============================================================================
+   624→// Image Gallery Component
+   625→// ============================================================================
+   626→
+   627→/**
+   628→ * ImageGallery - Interactive product image gallery with zoom functionality.
+   629→ *
+   630→ * Features:
+   631→ * - Main image display with mouse-follow zoom effect (1.8x scale)
+   632→ * - Thumbnail strip for switching between images
+   633→ * - Image counter overlay
+   634→ * - Animated transitions between selected images
+   635→ * - Handles both product images and variant images
+   636→ * - Falls back to gradient placeholders when no images are available
+   637→ *
+   638→ * @param {Object} props
+   639→ * @param {ProductDetail} props.product - The product data containing images and variants.
+   640→ *
+   641→ * @state
+   642→ * - selectedIndex: Index of the currently displayed image
+   643→ * - isZoomed: Whether the zoom effect is currently active (mouse hovering)
+   644→ * - zoomPos: { x, y } percentage coordinates for the zoom transform origin
+   645→ */
+   646→function ImageGallery({ product }: { product: ProductDetail }) {
+   647→  // Combine product images and variant images into a single array
+   648→  const images = parseImages(product.images)
+   649→  const variantImages = product.variants
+   650→    .filter((v) => v.images)
+   651→    .flatMap((v) => parseImages(v.images || '[]'))
+   652→  const allImages = [...images, ...variantImages]
+   653→  // Use placeholder if no images are available
+   654→  const displayImages = allImages.length > 0 ? allImages : ['__placeholder__']
+   655→
+   656→  const [selectedIndex, setSelectedIndex] = useState(0)
+   657→  const [isZoomed, setIsZoomed] = useState(false)
+   658→  const [zoomPos, setZoomPos] = useState({ x: 50, y: 50 })
+   659→
+   660→  /**
+   661→   * Tracks the mouse position over the main image to update the zoom origin.
+   662→   * The zoom follows the cursor position so the user can inspect different areas.
+   663→   */
+   664→  const handleMouseMove = useCallback(
+   665→    (e: React.MouseEvent<HTMLDivElement>) => {
+   666→      if (!isZoomed) return
+   667→      const rect = e.currentTarget.getBoundingClientRect()
+   668→      const x = ((e.clientX - rect.left) / rect.width) * 100
+   669→      const y = ((e.clientY - rect.top) / rect.height) * 100
+   670→      setZoomPos({ x, y })
+   671→    },
+   672→    [isZoomed]
+   673→  )
+   674→
+   675→  const currentImage = displayImages[selectedIndex]
+   676→
+   677→  return (
+   678→    <div className="space-y-4">
+   679→      {/* Main Image with zoom effect */}
+   680→      <motion.div
+   681→        initial={{ opacity: 0, scale: 0.98 }}
+   682→        animate={{ opacity: 1, scale: 1 }}
+   683→        transition={{ duration: 0.4 }}
+   684→        className="relative aspect-square rounded-xl overflow-hidden border bg-muted/30 cursor-crosshair"
+   685→        onMouseEnter={() => setIsZoomed(true)}
+   686→        onMouseLeave={() => setIsZoomed(false)}
+   687→        onMouseMove={handleMouseMove}
+   688→      >
+   689→        {/* Animated image transition when switching between images */}
+   690→        <AnimatePresence mode="wait">
+   691→          <motion.div
+   692→            key={selectedIndex}
+   693→            initial={{ opacity: 0 }}
+   694→            animate={{ opacity: 1 }}
+   695→            exit={{ opacity: 0 }}
+   696→            transition={{ duration: 0.3 }}
+   697→            className="size-full"
+   698→            style={
+   699→              isZoomed
+   700→                ? {
+   701→                    transform: 'scale(1.8)',
+   702→                    transformOrigin: `${zoomPos.x}% ${zoomPos.y}%`,
+   703→                    transition: 'transform-origin 0.1s ease-out',
+   704→                  }
+   705→                : {}
+   706→            }
+   707→          >
+   708→            {/* Render image or gradient placeholder */}
+   709→            {currentImage === '__placeholder__' ? (
+   710→              <div
+   711→                className={`size-full bg-gradient-to-br ${getGradientForIndex(selectedIndex)} flex items-center justify-center`}
+   712→              >
+   713→                <span className="text-7xl font-bold text-white/80 select-none">
+   714→                  {product.name.charAt(0)}
+   715→                </span>
+   716→              </div>
+   717→            ) : (
+   718→              <img
+   719→                src={currentImage}
+   720→                alt={`${product.name} - Image ${selectedIndex + 1}`}
+   721→                className="size-full object-cover"
+   722→                draggable={false}
+   723→              />
+   724→            )}
+   725→          </motion.div>
+   726→        </AnimatePresence>
+   727→
+   728→        {/* Image counter overlay - shows current/total */}
+   729→        <div className="absolute bottom-3 right-3 bg-black/60 text-white text-xs px-2 py-1 rounded-md backdrop-blur-sm">
+   730→          {selectedIndex + 1} / {displayImages.length}
+   731→        </div>
+   732→      </motion.div>
+   733→
+   734→      {/* Thumbnail strip - only shown when there are multiple images */}
+   735→      {displayImages.length > 1 && (
+   736→        <div className="flex gap-3 overflow-x-auto pb-1">
+   737→          {displayImages.map((img, i) => (
+   738→            <button
+   739→              key={i}
+   740→              onClick={() => setSelectedIndex(i)}
+   741→              className={`shrink-0 size-20 rounded-lg overflow-hidden border-2 transition-all ${
+   742→                selectedIndex === i
+   743→                  ? 'border-primary ring-2 ring-primary/20'
+   744→                  : 'border-transparent hover:border-muted-foreground/30'
+   745→              }`}
+   746→            >
+   747→              {/* Thumbnail image or gradient placeholder */}
+   748→              {img === '__placeholder__' ? (
+   749→                <div
+   750→                  className={`size-full bg-gradient-to-br ${getGradientForIndex(i)} flex items-center justify-center`}
+   751→                >
+   752→                  <span className="text-lg font-bold text-white/80">{product.name.charAt(0)}</span>
+   753→                </div>
+   754→              ) : (
+   755→                <img
+   756→                  src={img}
+   757→                  alt={`Thumbnail ${i + 1}`}
+   758→                  className="size-full object-cover"
+   759→                />
+   760→              )}
+   761→            </button>
+   762→          ))}
+   763→        </div>
+   764→      )}
+   765→    </div>
+   766→  )
+   767→}
+   768→
+   769→// ============================================================================
+   770→// Main Product Detail Page
+   771→// ============================================================================
+   772→
+   773→/**
+   774→ * ProductDetailPage - The main product detail page component for ShopForge.
+   775→ *
+   776→ * Displays a comprehensive product view with:
+   777→ * - Breadcrumb navigation (Home > Category > Product)
+   778→ * - Image gallery with zoom
+   779→ * - Product info (brand, name, rating, flash sale, price, description, variants, quantity)
+   780→ * - Action buttons (Add to Cart, Buy Now, Wishlist)
+   781→ * - Stock status and shipping info
+   782→ * - Trust badges
+   783→ * - Tabbed content (Description, Specifications, Reviews)
+   784→ * - Related products section
+   785→ *
+   786→ * @state
+   787→ * - selectedVariantId: ID of the currently selected product variant (null if none)
+   788→ * - rawQuantity: User's desired quantity (clamped to available inventory for display)
+   789→ * - activeTab: Currently active content tab ('description', 'specifications', or 'reviews')
+   790→ * - reviewsRef: Ref for scrolling to the reviews tab section
+   791→ *
+   792→ * @data_fetching
+   793→ * - Product detail by ID (includes variants, inventory, reviews, flash sale data)
+   794→ * - Related products returned alongside the product detail
+   795→ */
+   796→export default function ProductDetailPage() {
+   797→  // Get product ID from the router store params (set during navigation)
+   798→  const productId = useRouterStore((s) => s.params.id)
+   799→  const navigate = useRouterStore((s) => s.navigate)
+   800→  const goBack = useRouterStore((s) => s.goBack)
+   801→  const addItem = useCartStore((s) => s.addItem)
+   802→  const toggleWishlist = useWishlistStore((s) => s.toggleItem)
+   803→  const isInWishlist = useWishlistStore((s) => s.isInWishlist)
+   804→
+   805→  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null)
+   806→  const [rawQuantity, setRawQuantity] = useState(1)
+   807→  const [activeTab, setActiveTab] = useState('description')
+   808→  const reviewsRef = useRef<HTMLDivElement>(null)
+   809→
+   810→  // Fetch product data - enabled only when productId is available
+   811→  const {
+   812→    data: productData,
+   813→    isLoading,
+   814→    isError,
+   815→    error,
+   816→  } = useQuery({
+   817→    queryKey: ['product', productId],
+   818→    queryFn: async () => {
+   819→      const res = await api.get<ProductDetail & { relatedProducts: ProductListItem[] }>(
+   820→        `/products/${productId}`
+   821→      )
+   822→      if (!res.success || !res.data) {
+   823→        throw new Error(res.error || 'Failed to fetch product')
+   824→      }
+   825→      return res.data
+   826→    },
+   827→    enabled: !!productId,
+   828→    staleTime: 5 * 60 * 1000,  // Cache for 5 minutes
+   829→  })
+   830→
+   831→  const product = productData
+   832→
+   833→  /**
+   834→   * Determine the effective variant ID.
+   835→   * If the user has selected a variant that still exists, use it.
+   836→   * Otherwise, auto-select the first available variant when the product loads.
+   837→   * Falls back to null if the product has no variants.
+   838→   */
+   839→  const effectiveVariantId = useMemo(() => {
+   840→    if (!product) return selectedVariantId
+   841→    if (selectedVariantId && product.variants.some((v) => v.id === selectedVariantId)) return selectedVariantId
+   842→    if (product.variants.length > 0) return product.variants[0].id
+   843→    return null
+   844→  }, [product, selectedVariantId])
+   845→
+   846→  // Derived state: the currently selected variant object
+   847→  const selectedVariant = useMemo(() => {
+   848→    if (!product || !effectiveVariantId) return null
+   849→    return product.variants.find((v) => v.id === effectiveVariantId) ?? null
+   850→  }, [product, effectiveVariantId])
+   851→
+   852→  // Derived pricing: use variant price if a variant is selected, otherwise product price
+   853→  const currentPrice = selectedVariant?.price ?? product?.price ?? 0
+   854→  const currentComparePrice = selectedVariant?.comparePrice ?? product?.comparePrice ?? null
+   855→  const currentSku = selectedVariant?.sku ?? product?.sku ?? ''
+   856→  const discount = currentComparePrice ? getDiscountPercent(currentPrice, currentComparePrice) : 0
+   857→
+   858→  // Flash sale data - extract the first active flash sale for this product
+   859→  const flashSale = useMemo(() => {
+   860→    if (!product?.flashSaleProduct || product.flashSaleProduct.length === 0) return null
+   861→    return product.flashSaleProduct[0]
+   862→  }, [product])
+   863→
+   864→  const flashSalePrice = flashSale?.salePrice ?? null
+   865→
+   866→  /**
+   867→   * Calculate available inventory quantity.
+   868→   * If a variant is selected with its own inventory, use that.
+   869→   * Otherwise, sum across all product-level inventory records.
+   870→   */
+   871→  const availableQty = useMemo(() => {
+   872→    if (!product) return 0
+   873→    if (selectedVariant?.inventory) {
+   874→      return selectedVariant.inventory.quantity - selectedVariant.inventory.reserved
+   875→    }
+   876→    return product.inventory.reduce((sum, inv) => sum + inv.quantity - inv.reserved, 0)
+   877→  }, [product, selectedVariant])
+   878→
+   879→  // Maximum quantity the user can select (at least 1 to prevent zero)
+   880→  const maxQuantity = Math.max(availableQty, 1)
+   881→
+   882→  // Clamp the raw quantity to the maximum available
+   883→  const quantity = Math.min(rawQuantity, maxQuantity)
+   884→
+   885→  // Check if this product is in the user's wishlist
+   886→  const isWishlisted = productId ? isInWishlist(productId) : false
+   887→
+   888→  /**
+   889→   * Scrolls to the reviews section by switching to the reviews tab
+   890→   * and then scrolling the reviews container into view.
+   891→   * Uses a small timeout to allow the tab content to render first.
+   892→   */
+   893→  const scrollToReviews = useCallback(() => {
+   894→    setActiveTab('reviews')
+   895→    setTimeout(() => {
+   896→      reviewsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+   897→    }, 100)
+   898→  }, [])
+   899→
+   900→  /**
+   901→   * Handles adding the product to the cart.
+   902→   * Constructs a LocalCartItem with the selected variant, quantity,
+   903→   * and flash sale pricing (if applicable).
+   904→   */
+   905→  const handleAddToCart = useCallback(() => {
+   906→    if (!product) return
+   907→    const images = parseImages(product.images)
+   908→    const item: LocalCartItem = {
+   909→      productId: product.id,
+   910→      variantId: selectedVariant?.id,
+   911→      quantity,
+   912→      name: product.name,
+   913→      slug: product.slug,
+   914→      price: flashSalePrice ?? currentPrice,
+   915→      comparePrice: currentComparePrice ?? undefined,
+   916→      image: images[0] || '',
+   917→      variantName: selectedVariant?.name,
+   918→      sku: currentSku,
+   919→    }
+   920→    addItem(item)
+   921→  }, [product, selectedVariant, quantity, flashSalePrice, currentPrice, currentComparePrice, currentSku, addItem])
+   922→
+   923→  /**
+   924→   * Handles the "Buy Now" action: adds the item to cart and immediately
+   925→   * navigates to the cart page for checkout.
+   926→   */
+   927→  const handleBuyNow = useCallback(() => {
+   928→    handleAddToCart()
+   929→    navigate('cart')
+   930→  }, [handleAddToCart, navigate])
+   931→
+   932→  // Loading state - show skeleton placeholder
+   933→  if (isLoading) {
+   934→    return (
+   935→      <div className="container mx-auto px-4 py-6">
+   936→        <ProductDetailSkeleton />
+   937→      </div>
+   938→    )
+   939→  }
+   940→
+   941→  // Error state - show error message with navigation options
+   942→  if (isError || !product) {
+   943→    return (
+   944→      <div className="container mx-auto px-4 py-6">
+   945→        <div className="flex flex-col items-center justify-center min-h-[40vh] gap-4">
+   946→          <Package className="size-16 text-muted-foreground/40" />
+   947→          <h2 className="text-xl font-semibold text-muted-foreground">
+   948→            {isError ? 'Failed to load product' : 'Product not found'}
+   949→          </h2>
+   950→          <p className="text-sm text-muted-foreground">
+   951→            {(error as Error)?.message || 'The product you are looking for does not exist or has been removed.'}
+   952→          </p>
+   953→          <div className="flex gap-3">
+   954→            {/* Go back to the previous page */}
+   955→            <Button variant="outline" onClick={goBack}>
+   956→              <ArrowLeft className="size-4 mr-2" />
+   957→              Go Back
+   958→            </Button>
+   959→            {/* Return to homepage */}
+   960→            <Button onClick={() => navigate('home')}>Back to Home</Button>
+   961→          </div>
+   962→        </div>
+   963→      </div>
+   964→    )
+   965→  }
+   966→
+   967→  return (
+   968→    <div className="container mx-auto px-4 py-6 space-y-8">
+   969→      {/* ================================================================== */}
+   970→      {/* Breadcrumb Navigation                                              */}
+   971→      {/* Shows Home > Category > Product Name path                          */}
+   972→      {/* ================================================================== */}
+   973→      <motion.nav
+   974→        initial={{ opacity: 0, y: -10 }}
+   975→        animate={{ opacity: 1, y: 0 }}
+   976→        transition={{ duration: 0.3 }}
+   977→      >
+   978→        <Breadcrumb>
+   979→          <BreadcrumbList>
+   980→            <BreadcrumbItem>
+   981→              <BreadcrumbLink
+   982→                className="cursor-pointer"
+   983→                onClick={() => navigate('home')}
+   984→              >
+   985→                <Home className="size-3.5 mr-1 inline" />
+   986→                Home
+   987→              </BreadcrumbLink>
+   988→            </BreadcrumbItem>
+   989→            <BreadcrumbSeparator />
+   990→            <BreadcrumbItem>
+   991→              {/* Category link - navigates to products page filtered by this category */}
+   992→              <BreadcrumbLink
+   993→                className="cursor-pointer"
+   994→                onClick={() => navigate('products', { categoryId: product.category.id })}
+   995→              >
+   996→                {product.category.name}
+   997→              </BreadcrumbLink>
+   998→            </BreadcrumbItem>
+   999→            <BreadcrumbSeparator />
+  1000→            <BreadcrumbItem>
+  1001→              {/* Product name - truncated on smaller screens */}
+  1002→              <BreadcrumbPage className="truncate max-w-[200px] sm:max-w-[300px]">
+  1003→                {product.name}
+  1004→              </BreadcrumbPage>
+  1005→            </BreadcrumbItem>
+  1006→          </BreadcrumbList>
+  1007→        </Breadcrumb>
+  1008→      </motion.nav>
+  1009→
+  1010→      {/* ================================================================== */}
+  1011→      {/* Product Gallery & Info - 2 Column Layout                           */}
+  1012→      {/* Left: Image gallery with zoom                                      */}
+  1013→      {/* Right: Product info, variants, quantity, and action buttons        */}
+  1014→      {/* ================================================================== */}
+  1015→      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
+  1016→        {/* Left Column - Image Gallery */}
+  1017→        <motion.div
+  1018→          initial={{ opacity: 0, x: -20 }}
+  1019→          animate={{ opacity: 1, x: 0 }}
+  1020→          transition={{ duration: 0.5 }}
+  1021→        >
+  1022→          <ImageGallery product={product} />
+  1023→        </motion.div>
+  1024→
+  1025→        {/* Right Column - Product Info */}
+  1026→        <motion.div
+  1027→          initial={{ opacity: 0, x: 20 }}
+  1028→          animate={{ opacity: 1, x: 0 }}
+  1029→          transition={{ duration: 0.5, delay: 0.1 }}
+  1030→          className="space-y-5"
+  1031→        >
+  1032→          {/* Brand name */}
+  1033→          {product.brand && (
+  1034→            <p className="text-sm text-muted-foreground font-medium">{product.brand.name}</p>
+  1035→          )}
+  1036→
+  1037→          {/* Product name */}
+  1038→          <h1 className="text-2xl sm:text-3xl font-bold leading-tight">{product.name}</h1>
+  1039→
+  1040→          {/* Rating - clickable to scroll to reviews section */}
+  1041→          <button
+  1042→            onClick={scrollToReviews}
+  1043→            className="flex items-center gap-2 group"
+  1044→          >
+  1045→            <StarRating rating={product.avgRating} size="md" />
+  1046→            <span className="text-sm font-medium">{product.avgRating.toFixed(1)}</span>
+  1047→            <span className="text-sm text-muted-foreground group-hover:text-primary transition-colors">
+  1048→              ({product.reviewCount} review{product.reviewCount !== 1 ? 's' : ''})
+  1049→            </span>
+  1050→          </button>
+  1051→
+  1052→          {/* Flash Sale Countdown - shown when the product is part of an active flash sale */}
+  1053→          {flashSale && (
+  1054→            <FlashSaleCountdown endsAt={flashSale.flashSale.endsAt} />
+  1055→          )}
+  1056→
+  1057→          {/* Price display - handles both flash sale and regular discount scenarios */}
+  1058→          <div className="space-y-1">
+  1059→            <div className="flex items-baseline gap-3 flex-wrap">
+  1060→              {flashSalePrice !== null ? (
+  1061→                /* Flash sale pricing: sale price in red + crossed-out regular price */
+  1062→                <>
+  1063→                  <span className="text-3xl font-bold text-red-600 dark:text-red-400">
+  1064→                    {formatPrice(flashSalePrice)}
+  1065→                  </span>
+  1066→                  <span className="text-lg text-muted-foreground line-through">
+  1067→                    {formatPrice(currentPrice)}
+  1068→                  </span>
+  1069→                  {currentComparePrice && (
+  1070→                    <Badge variant="destructive" className="text-xs">
+  1071→                      Save {formatPrice(currentComparePrice - flashSalePrice)}
+  1072→                    </Badge>
+  1073→                  )}
+  1074→                </>
+  1075→              ) : (
+  1076→                /* Regular pricing: current price + optional compare-at price with discount badge */
+  1077→                <>
+  1078→                  <span className="text-3xl font-bold">{formatPrice(currentPrice)}</span>
+  1079→                  {currentComparePrice && currentComparePrice > currentPrice && (
+  1080→                    <>
+  1081→                      <span className="text-lg text-muted-foreground line-through">
+  1082→                        {formatPrice(currentComparePrice)}
+  1083→                      </span>
+  1084→                      <Badge variant="destructive" className="text-xs">
+  1085→                        {`-${discount}% OFF`}
+  1086→                      </Badge>
+  1087→                    </>
+  1088→                  )}
+  1089→                </>
+  1090→              )}
+  1091→            </div>
+  1092→            <p className="text-xs text-muted-foreground">Tax included. Shipping calculated at checkout.</p>
+  1093→          </div>
+  1094→
+  1095→          {/* Short description */}
+  1096→          {product.shortDesc && (
+  1097→            <p className="text-sm text-muted-foreground leading-relaxed">{product.shortDesc}</p>
+  1098→          )}
+  1099→
+  1100→          <Separator />
+  1101→
+  1102→          {/* Variant Selector - shown when the product has variants (sizes, colors, etc.) */}
+  1103→          {product.variants.length > 0 && (
+  1104→            <div className="space-y-3">
+  1105→              {/* Variant attribute name (extracted from variant attributes JSON) */}
+  1106→              <h3 className="text-sm font-semibold">
+  1107→                {product.variants[0].attributes
+  1108→                  ? Object.keys(JSON.parse(product.variants[0].attributes)).map(
+  1109→                      (k) => k.charAt(0).toUpperCase() + k.slice(1)
+  1110→                    ).join(' / ')
+  1111→                  : 'Options'}
+  1112→                :{' '}
+  1113→                <span className="font-normal text-muted-foreground">
+  1114→                  {selectedVariant?.name || 'Select'}
+  1115→                </span>
+  1116→              </h3>
+  1117→              {/* Variant buttons - out of stock variants are disabled and styled differently */}
+  1118→              <div className="flex flex-wrap gap-2">
+  1119→                {product.variants.map((variant) => {
+  1120→                  const isSelected = selectedVariantId === variant.id
+  1121→                  const isOutOfStock = variant.inventory
+  1122→                    ? variant.inventory.quantity - variant.inventory.reserved <= 0
+  1123→                    : false
+  1124→
+  1125→                  return (
+  1126→                    <button
+  1127→                      key={variant.id}
+  1128→                      onClick={() => {
+  1129→                        if (!isOutOfStock) setSelectedVariantId(variant.id)
+  1130→                      }}
+  1131→                      disabled={isOutOfStock}
+  1132→                      className={`px-4 py-2 rounded-lg text-sm font-medium border transition-all ${
+  1133→                        isSelected
+  1134→                          ? 'border-primary bg-primary/10 text-primary ring-2 ring-primary/20'
+  1135→                          : isOutOfStock
+  1136→                            ? 'border-muted bg-muted/50 text-muted-foreground cursor-not-allowed line-through'
+  1137→                            : 'border-input hover:border-primary/50 hover:bg-accent'
+  1138→                      }`}
+  1139→                    >
+  1140→                      {variant.name}
+  1141→                    </button>
+  1142→                  )
+  1143→                })}
+  1144→              </div>
+  1145→            </div>
+  1146→          )}
+  1147→
+  1148→          {/* Quantity Selector - increment/decrement buttons with current quantity display */}
+  1149→          <div className="space-y-3">
+  1150→            <h3 className="text-sm font-semibold">Quantity</h3>
+  1151→            <div className="flex items-center gap-3">
+  1152→              <div className="flex items-center border rounded-lg">
+  1153→                {/* Decrease quantity button - disabled at minimum (1) */}
+  1154→                <Button
+  1155→                  variant="ghost"
+  1156→                  size="icon"
+  1157→                  className="size-10 rounded-r-none"
+  1158→                  onClick={() => setRawQuantity((q) => Math.max(1, q - 1))}
+  1159→                  disabled={quantity <= 1}
+  1160→                >
+  1161→                  <Minus className="size-4" />
+  1162→                </Button>
+  1163→                {/* Current quantity display - tabular nums for stable width */}
+  1164→                <div className="w-12 text-center font-medium text-sm tabular-nums">
+  1165→                  {quantity}
+  1166→                </div>
+  1167→                {/* Increase quantity button - disabled at max available */}
+  1168→                <Button
+  1169→                  variant="ghost"
+  1170→                  size="icon"
+  1171→                  className="size-10 rounded-l-none"
+  1172→                  onClick={() => setRawQuantity((q) => Math.min(maxQuantity, q + 1))}
+  1173→                  disabled={quantity >= maxQuantity}
+  1174→                >
+  1175→                  <Plus className="size-4" />
+  1176→                </Button>
+  1177→              </div>
+  1178→              {/* Available stock hint */}
+  1179→              <span className="text-xs text-muted-foreground">
+  1180→                {availableQty > 0 ? `${availableQty} available` : ''}
+  1181→              </span>
+  1182→            </div>
+  1183→          </div>
+  1184→
+  1185→          {/* Action Buttons - Add to Cart, Buy Now, and Wishlist */}
+  1186→          <div className="flex items-center gap-3 flex-wrap">
+  1187→            {/* Add to Cart - primary action button */}
+  1188→            <Button
+  1189→              size="lg"
+  1190→              className="flex-1 min-w-[160px] h-12 text-base font-semibold"
+  1191→              onClick={handleAddToCart}
+  1192→              disabled={availableQty <= 0}
+  1193→            >
+  1194→              <ShoppingCart className="size-5 mr-2" />
+  1195→              {availableQty <= 0 ? 'Out of Stock' : 'Add to Cart'}
+  1196→            </Button>
+  1197→            {/* Buy Now - adds to cart and navigates to checkout */}
+  1198→            <Button
+  1199→              variant="outline"
+  1200→              size="lg"
+  1201→              className="flex-1 min-w-[120px] h-12 text-base font-semibold"
+  1202→              onClick={handleBuyNow}
+  1203→              disabled={availableQty <= 0}
+  1204→            >
+  1205→              Buy Now
+  1206→            </Button>
+  1207→            {/* Wishlist toggle - heart icon with scale animation on toggle */}
+  1208→            <Button
+  1209→              variant="outline"
+  1210→              size="icon"
+  1211→              className="size-12 shrink-0"
+  1212→              onClick={() => productId && toggleWishlist(productId)}
+  1213→            >
+  1214→              <motion.div
+  1215→                animate={isWishlisted ? { scale: [1, 1.3, 1] } : {}}
+  1216→                transition={{ duration: 0.3 }}
+  1217→              >
+  1218→                <Heart
+  1219→                  className={`size-5 ${
+  1220→                    isWishlisted
+  1221→                      ? 'fill-red-500 text-red-500'
+  1222→                      : 'text-muted-foreground'
+  1223→                  }`}
+  1224→                />
+  1225→              </motion.div>
+  1226→            </Button>
+  1227→          </div>
+  1228→
+  1229→          {/* Stock & Shipping Info */}
+  1230→          <div className="space-y-3 pt-1">
+  1231→            {/* Stock status badge (In Stock / Low Stock / Out of Stock) */}
+  1232→            <StockStatus inventory={product.inventory} />
+  1233→
+  1234→            {/* Free shipping notice */}
+  1235→            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+  1236→              <Truck className="size-4 shrink-0" />
+  1237→              <span>Free shipping on orders over $50</span>
+  1238→            </div>
+  1239→
+  1240→            {/* SKU display */}
+  1241→            {currentSku && (
+  1242→              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+  1243→                <span className="font-medium">SKU:</span>
+  1244→                <span>{currentSku}</span>
+  1245→              </div>
+  1246→            )}
+  1247→          </div>
+  1248→
+  1249→          {/* Trust Badges - 3-column grid of security/shipping guarantees */}
+  1250→          <div className="grid grid-cols-3 gap-3 pt-2">
+  1251→            {[
+  1252→              { icon: ShieldCheck, label: 'Secure Payment' },
+  1253→              { icon: RotateCcw, label: '30-Day Returns' },
+  1254→              { icon: Truck, label: 'Fast Shipping' },
+  1255→            ].map(({ icon: Icon, label }) => (
+  1256→              <div
+  1257→                key={label}
+  1258→                className="flex flex-col items-center gap-1.5 text-center p-3 rounded-lg bg-muted/50"
+  1259→              >
+  1260→                <Icon className="size-5 text-muted-foreground" />
+  1261→                <span className="text-[11px] text-muted-foreground leading-tight">{label}</span>
+  1262→              </div>
+  1263→            ))}
+  1264→          </div>
+  1265→        </motion.div>
+  1266→      </div>
+  1267→
+  1268→      {/* ================================================================== */}
+  1269→      {/* Product Tabs - Description, Specifications, Reviews                */}
+  1270→      {/* ================================================================== */}
+  1271→      <motion.div
+  1272→        ref={reviewsRef}
+  1273→        initial={{ opacity: 0, y: 20 }}
+  1274→        animate={{ opacity: 1, y: 0 }}
+  1275→        transition={{ duration: 0.5, delay: 0.2 }}
+  1276→      >
+  1277→        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+  1278→          <TabsList className="w-full sm:w-auto">
+  1279→            <TabsTrigger value="description">Description</TabsTrigger>
+  1280→            <TabsTrigger value="specifications">Specifications</TabsTrigger>
+  1281→            <TabsTrigger value="reviews">
+  1282→              Reviews ({product.reviewCount})
+  1283→            </TabsTrigger>
+  1284→          </TabsList>
+  1285→
+  1286→          {/* Description Tab - renders HTML content from the product description */}
+  1287→          <TabsContent value="description" className="mt-6">
+  1288→            <Card>
+  1289→              <CardContent className="prose prose-sm dark:prose-invert max-w-none">
+  1290→                <div
+  1291→                  dangerouslySetInnerHTML={{ __html: product.description || '<p>No description available.</p>' }}
+  1292→                />
+  1293→              </CardContent>
+  1294→            </Card>
+  1295→          </TabsContent>
+  1296→
+  1297→          {/* Specifications Tab - key-value pairs of product attributes */}
+  1298→          <TabsContent value="specifications" className="mt-6">
+  1299→            <Card>
+  1300→              <CardHeader>
+  1301→                <CardTitle className="text-lg">Product Specifications</CardTitle>
+  1302→              </CardHeader>
+  1303→              <CardContent>
+  1304→                <div className="divide-y">
+  1305→                  {[
+  1306→                    { label: 'SKU', value: product.sku },
+  1307→                    { label: 'Weight', value: product.weight ? `${product.weight} kg` : 'N/A' },
+  1308→                    { label: 'Dimensions', value: product.dimensions || 'N/A' },
+  1309→                    { label: 'Brand', value: product.brand?.name || 'N/A' },
+  1310→                    { label: 'Category', value: product.category.name },
+  1311→                    {
+  1312→                      label: 'Tags',
+  1313→                      value: product.tags.map((t) => t.tag).join(', ') || 'N/A',
+  1314→                    },
+  1315→                    {
+  1316→                      label: 'Variants Available',
+  1317→                      value: product.variants.length > 0
+  1318→                        ? product.variants.map((v) => v.name).join(', ')
+  1319→                        : 'Standard',
+  1320→                    },
+  1321→                    {
+  1322→                      label: 'Total Sold',
+  1323→                      value: product.totalSold.toString(),
+  1324→                    },
+  1325→                  ].map(({ label, value }) => (
+  1326→                    <div
+  1327→                      key={label}
+  1328→                      className="flex items-center py-3 gap-4"
+  1329→                    >
+  1330→                      <span className="text-sm font-medium text-muted-foreground w-40 shrink-0">
+  1331→                        {label}
+  1332→                      </span>
+  1333→                      <span className="text-sm">{value}</span>
+  1334→                    </div>
+  1335→                  ))}
+  1336→                </div>
+  1337→              </CardContent>
+  1338→            </Card>
+  1339→          </TabsContent>
+  1340→
+  1341→          {/* Reviews Tab - rating distribution summary + individual review cards */}
+  1342→          <TabsContent value="reviews" className="mt-6 space-y-6">
+  1343→            {/* Rating Summary - average rating with distribution bar chart */}
+  1344→            <Card>
+  1345→              <CardContent className="pt-6">
+  1346→                <RatingDistribution
+  1347→                  reviews={product.reviews}
+  1348→                  avgRating={product.avgRating}
+  1349→                />
+  1350→              </CardContent>
+  1351→            </Card>
+  1352→
+  1353→            {/* Individual Reviews */}
+  1354→            <Card>
+  1355→              <CardHeader>
+  1356→                <CardTitle className="text-lg">Customer Reviews</CardTitle>
+  1357→              </CardHeader>
+  1358→              <CardContent>
+  1359→                {product.reviews.length === 0 ? (
+  1360→                  /* Empty state when no reviews exist */
+  1361→                  <div className="text-center py-8 text-muted-foreground">
+  1362→                    <Eye className="size-10 mx-auto mb-2 opacity-40" />
+  1363→                    <p className="text-sm">No reviews yet. Be the first to review this product!</p>
+  1364→                  </div>
+  1365→                ) : (
+  1366→                  /* List of review cards separated by dividers */
+  1367→                  <div className="divide-y">
+  1368→                    {product.reviews.map((review) => (
+  1369→                      <ReviewCard key={review.id} review={review} />
+  1370→                    ))}
+  1371→                  </div>
+  1372→                )}
+  1373→              </CardContent>
+  1374→            </Card>
+  1375→          </TabsContent>
+  1376→        </Tabs>
+  1377→      </motion.div>
+  1378→
+  1379→      {/* ================================================================== */}
+  1380→      {/* Related Products                                                   */}
+  1381→      {/* Horizontal scroll of related product cards from the same category.  */}
+  1382→      {/* Only shown when related products are available.                     */}
+  1383→      {/* ================================================================== */}
+  1384→      {productData?.relatedProducts && productData.relatedProducts.length > 0 && (
+  1385→        <motion.section
+  1386→          initial={{ opacity: 0, y: 20 }}
+  1387→          animate={{ opacity: 1, y: 0 }}
+  1388→          transition={{ duration: 0.5, delay: 0.3 }}
+  1389→          className="space-y-4"
+  1390→        >
+  1391→          <div className="flex items-center justify-between">
+  1392→            <h2 className="text-xl font-bold">Related Products</h2>
+  1393→            {/* Link to view all products in this category */}
+  1394→            <Button
+  1395→              variant="ghost"
+  1396→              size="sm"
+  1397→              onClick={() => navigate('products', { categoryId: product.category.id })}
+  1398→            >
+  1399→              View All
+  1400→              <ChevronRight className="size-4 ml-1" />
+  1401→            </Button>
+  1402→          </div>
+  1403→          {/* Horizontal scrolling container for related product cards */}
+  1404→          <ScrollArea className="w-full">
+  1405→            <div className="flex gap-4 pb-4">
+  1406→              {productData.relatedProducts.map((rp) => (
+  1407→                <RelatedProductCard key={rp.id} product={rp} />
+  1408→              ))}
+  1409→            </div>
+  1410→            <ScrollBar orientation="horizontal" />
+  1411→          </ScrollArea>
+  1412→        </motion.section>
+  1413→      )}
+  1414→    </div>
+  1415→  )
+  1416→}
+  1417→

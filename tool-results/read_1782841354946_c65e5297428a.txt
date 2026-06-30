@@ -1,0 +1,1502 @@
+     1→/**
+     2→ * @file checkout-page.tsx
+     3→ * @description Multi-step checkout page component for the ShopForge e-commerce application.
+     4→ * Guides the customer through shipping address entry, payment details, and order confirmation
+     5→ * with a stepper UI, form validation, and a celebratory confetti effect on successful orders.
+     6→ *
+     7→ * @keyfeatures
+     8→ * - Three-step checkout flow: Shipping → Payment → Confirmation
+     9→ * - Visual stepper with completed/current/pending state indicators
+    10→ * - Shipping address form with Zod schema validation (name, address, city, state, zip, phone)
+    11→ * - Payment form with card number formatting, expiry auto-slash, and CVC masking
+    12→ * - Standard vs. Express shipping method selection with dynamic pricing
+    13→ * - Order summary sidebar (full on desktop, collapsible on mobile)
+    14→ * - Coupon code re-validation on mount (carried over from cart page)
+    15→ * - Order creation via POST /api/orders with full cart and address payload
+    16→ * - Confetti animation and order confirmation display on success
+    17→ * - Redirect guards: empty cart → cart page, unauthenticated → login page
+    18→ */
+    19→
+    20→'use client'
+    21→
+    22→import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
+    23→import { useForm } from 'react-hook-form'
+    24→import { z } from 'zod/v4'
+    25→import { zodResolver } from '@hookform/resolvers/zod'
+    26→import { motion, AnimatePresence } from 'framer-motion'
+    27→import {
+    28→  Truck,
+    29→  CreditCard,
+    30→  CheckCircle2,
+    31→  ChevronRight,
+    32→  ChevronDown,
+    33→  Loader2,
+    34→  ShoppingBag,
+    35→  Package,
+    36→  ArrowLeft,
+    37→  Lock,
+    38→} from 'lucide-react'
+    39→import { useRouterStore } from '@/stores/router-store'
+    40→import { useCartStore } from '@/stores/cart-store'
+    41→import { useAuthStore } from '@/stores/auth-store'
+    42→import { Button } from '@/components/ui/button'
+    43→import {
+    44→  Card,
+    45→  CardContent,
+    46→  CardHeader,
+    47→  CardTitle,
+    48→} from '@/components/ui/card'
+    49→import { Input } from '@/components/ui/input'
+    50→import { Separator } from '@/components/ui/separator'
+    51→import { Badge } from '@/components/ui/badge'
+    52→import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
+    53→import { Label } from '@/components/ui/label'
+    54→import {
+    55→  Form,
+    56→  FormControl,
+    57→  FormField,
+    58→  FormItem,
+    59→  FormLabel,
+    60→  FormMessage,
+    61→} from '@/components/ui/form'
+    62→import {
+    63→  Collapsible,
+    64→  CollapsibleContent,
+    65→  CollapsibleTrigger,
+    66→} from '@/components/ui/collapsible'
+    67→
+    68→// ============================================================================
+    69→// Types
+    70→// ============================================================================
+    71→
+    72→/**
+    73→ * Represents the result returned from the coupon validation API.
+    74→ * Contains the coupon details and the calculated discount amount.
+    75→ *
+    76→ * @property id       - Unique coupon identifier from the database
+    77→ * @property code     - The coupon code string (e.g., "SAVE10")
+    78→ * @property type     - Discount type: "PERCENTAGE" or "FIXED"
+    79→ * @property value    - The discount value (percentage number or fixed dollar amount)
+    80→ * @property discount - The calculated discount amount in dollars applied to the current cart
+    81→ */
+    82→interface CouponResult {
+    83→  id: string
+    84→  code: string
+    85→  type: string
+    86→  value: number
+    87→  discount: number
+    88→}
+    89→
+    90→/**
+    91→ * Union type representing the three steps in the checkout flow.
+    92→ * - 'shipping'     — Collect shipping address and method
+    93→ * - 'payment'      — Collect payment card details and place order
+    94→ * - 'confirmation' — Display order confirmation after successful placement
+    95→ */
+    96→type CheckoutStep = 'shipping' | 'payment' | 'confirmation'
+    97→
+    98→// ============================================================================
+    99→// Helpers
+   100→// ============================================================================
+   101→
+   102→/**
+   103→ * Formats a numeric price value into a USD currency string.
+   104→ * Uses the Intl.NumberFormat API for locale-aware formatting.
+   105→ *
+   106→ * @param price - The numeric price value to format
+   107→ * @returns Formatted currency string (e.g., "$19.99")
+   108→ */
+   109→function formatPrice(price: number): string {
+   110→  return new Intl.NumberFormat('en-US', {
+   111→    style: 'currency',
+   112→    currency: 'USD',
+   113→  }).format(price)
+   114→}
+   115→
+   116→/**
+   117→ * Array of Tailwind CSS gradient class pairs used as product image placeholders.
+   118→ * Each entry provides a unique color gradient to visually differentiate products
+   119→ * when actual product images are not available.
+   120→ */
+   121→const PRODUCT_GRADIENTS = [
+   122→  'from-rose-400 to-pink-500',
+   123→  'from-violet-400 to-purple-500',
+   124→  'from-cyan-400 to-blue-500',
+   125→  'from-emerald-400 to-teal-500',
+   126→  'from-amber-400 to-orange-500',
+   127→  'from-fuchsia-400 to-pink-500',
+   128→  'from-sky-400 to-indigo-400',
+   129→  'from-lime-400 to-green-500',
+   130→]
+   131→
+   132→/**
+   133→ * Generates a deterministic gradient class string based on a product ID.
+   134→ * Uses a simple hash function to consistently map the same product ID
+   135→ * to the same gradient, ensuring visual consistency across re-renders.
+   136→ *
+   137→ * @param productId - The unique product identifier to hash
+   138→ * @returns A Tailwind CSS gradient class string (e.g., "from-rose-400 to-pink-500")
+   139→ */
+   140→function getGradient(productId: string): string {
+   141→  let hash = 0
+   142→  for (let i = 0; i < productId.length; i++) {
+   143→    hash = productId.charCodeAt(i) + ((hash << 5) - hash)
+   144→  }
+   145→  return PRODUCT_GRADIENTS[Math.abs(hash) % PRODUCT_GRADIENTS.length]
+   146→}
+   147→
+   148→// ============================================================================
+   149→// Zod Schema
+   150→// ============================================================================
+   151→
+   152→/**
+   153→ * Zod validation schema for the shipping address form.
+   154→ * Validates all required address fields with appropriate rules:
+   155→ * - Names and address fields require at least 1 character
+   156→ * - Postal code must match US ZIP format (5-digit or ZIP+4)
+   157→ * - Phone number must match common international formats
+   158→ */
+   159→const shippingSchema = z.object({
+   160→  firstName: z.string().min(1, 'First name is required'),
+   161→  lastName: z.string().min(1, 'Last name is required'),
+   162→  street1: z.string().min(1, 'Street address is required'),
+   163→  street2: z.string().optional(),
+   164→  city: z.string().min(1, 'City is required'),
+   165→  state: z.string().min(1, 'State is required'),
+   166→  postalCode: z
+   167→    .string()
+   168→    .min(1, 'Postal code is required')
+   169→    .regex(/^[0-9]{5}(-[0-9]{4})?$/, 'Enter a valid postal code'),
+   170→  country: z.string().min(1, 'Country is required'),
+   171→  phone: z
+   172→    .string()
+   173→    .min(1, 'Phone number is required')
+   174→    .regex(/^[+]?[0-9\s\-()]{7,20}$/, 'Enter a valid phone number'),
+   175→})
+   176→
+   177→/** Inferred TypeScript type from the shipping Zod schema */
+   178→type ShippingFormValues = z.infer<typeof shippingSchema>
+   179→
+   180→/**
+   181→ * Zod validation schema for the payment card form.
+   182→ * Validates card number (13-19 digits with spaces), expiry (MM/YY),
+   183→ * and CVC (3-4 digits) with appropriate regex patterns.
+   184→ */
+   185→const paymentSchema = z.object({
+   186→  cardNumber: z
+   187→    .string()
+   188→    .min(1, 'Card number is required')
+   189→    .regex(/^[0-9\s]{13,19}$/, 'Enter a valid card number'),
+   190→  expiry: z
+   191→    .string()
+   192→    .min(1, 'Expiry date is required')
+   193→    .regex(/^(0[1-9]|1[0-2])\/[0-9]{2}$/, 'Use format MM/YY'),
+   194→  cvc: z
+   195→    .string()
+   196→    .min(1, 'CVC is required')
+   197→    .regex(/^[0-9]{3,4}$/, 'Enter a valid CVC'),
+   198→})
+   199→
+   200→/** Inferred TypeScript type from the payment Zod schema */
+   201→type PaymentFormValues = z.infer<typeof paymentSchema>
+   202→
+   203→// ============================================================================
+   204→// Confetti Effect
+   205→// ============================================================================
+   206→
+   207→/**
+   208→ * ConfettiEffect renders a full-screen canvas-based confetti animation
+   209→ * that plays once when the order is successfully placed. Particles are
+   210→ * launched from the center of the screen with random velocities, colors,
+   211→ * and rotation speeds, then fade out over time.
+   212→ *
+   213→ * The animation automatically cleans up via requestAnimationFrame cancellation
+   214→ * when the component unmounts.
+   215→ */
+   216→function ConfettiEffect() {
+   217→  const canvasRef = useRef<HTMLCanvasElement>(null)
+   218→
+   219→  useEffect(() => {
+   220→    const canvas = canvasRef.current
+   221→    if (!canvas) return
+   222→
+   223→    const ctx = canvas.getContext('2d')
+   224→    if (!ctx) return
+   225→
+   226→    // Set canvas to full viewport size
+   227→    canvas.width = window.innerWidth
+   228→    canvas.height = window.innerHeight
+   229→
+   230→    // Festive color palette for confetti particles
+   231→    const colors = [
+   232→      '#f59e0b', '#ef4444', '#10b981', '#8b5cf6',
+   233→      '#ec4899', '#06b6d4', '#f97316', '#14b8a6',
+   234→    ]
+   235→
+   236→    // Particle type definition for the confetti system
+   237→    const particles: Array<{
+   238→      x: number
+   239→      y: number
+   240→      vx: number
+   241→      vy: number
+   242→      color: string
+   243→      size: number
+   244→      rotation: number
+   245→      rotationSpeed: number
+   246→      opacity: number
+   247→    }> = []
+   248→
+   249→    // Initialize 120 confetti particles with random properties
+   250→    for (let i = 0; i < 120; i++) {
+   251→      particles.push({
+   252→        x: canvas.width / 2 + (Math.random() - 0.5) * 200,
+   253→        y: canvas.height / 2,
+   254→        vx: (Math.random() - 0.5) * 15,
+   255→        vy: -Math.random() * 18 - 5,
+   256→        color: colors[Math.floor(Math.random() * colors.length)],
+   257→        size: Math.random() * 8 + 3,
+   258→        rotation: Math.random() * 360,
+   259→        rotationSpeed: (Math.random() - 0.5) * 10,
+   260→        opacity: 1,
+   261→      })
+   262→    }
+   263→
+   264→    let animationId: number
+   265→
+   266→    /** Animation loop — updates and renders each particle every frame */
+   267→    function animate() {
+   268→      if (!ctx || !canvas) return
+   269→      ctx.clearRect(0, 0, canvas.width, canvas.height)
+   270→
+   271→      let alive = false
+   272→      particles.forEach((p) => {
+   273→        // Apply physics: velocity, gravity, rotation, and fade
+   274→        p.x += p.vx
+   275→        p.y += p.vy
+   276→        p.vy += 0.3       // Gravity pulls particles downward
+   277→        p.rotation += p.rotationSpeed
+   278→        p.opacity -= 0.008 // Gradually fade out
+   279→
+   280→        // Only render particles that are still visible
+   281→        if (p.opacity > 0) {
+   282→          alive = true
+   283→          ctx.save()
+   284→          ctx.translate(p.x, p.y)
+   285→          ctx.rotate((p.rotation * Math.PI) / 180)
+   286→          ctx.globalAlpha = p.opacity
+   287→          ctx.fillStyle = p.color
+   288→          // Draw rectangular confetti piece
+   289→          ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6)
+   290→          ctx.restore()
+   291→        }
+   292→      })
+   293→
+   294→      if (alive) {
+   295→        animationId = requestAnimationFrame(animate)
+   296→      } else {
+   297→        // All particles faded out — clear the canvas
+   298→        ctx.clearRect(0, 0, canvas.width, canvas.height)
+   299→      }
+   300→    }
+   301→
+   302→    // Start the animation loop
+   303→    animate()
+   304→
+   305→    // Cleanup: cancel animation frame on unmount
+   306→    return () => {
+   307→      cancelAnimationFrame(animationId)
+   308→    }
+   309→  }, [])
+   310→
+   311→  return (
+   312→    <canvas
+   313→      ref={canvasRef}
+   314→      className="fixed inset-0 pointer-events-none z-50"
+   315→      aria-hidden="true"
+   316→    />
+   317→  )
+   318→}
+   319→
+   320→// ============================================================================
+   321→// Stepper
+   322→// ============================================================================
+   323→
+   324→/**
+   325→ * CheckoutStepper renders a horizontal step indicator showing the current
+   326→ * position in the checkout flow. Each step displays an icon and label,
+   327→ * with visual styling for completed (green check), current (primary color),
+   328→ * and pending (muted) states. Steps are connected by horizontal lines
+   329→ * that fill with color as steps are completed.
+   330→ *
+   331→ * @param props
+   332→ * @param props.currentStep - The active checkout step ('shipping' | 'payment' | 'confirmation')
+   333→ */
+   334→function CheckoutStepper({ currentStep }: { currentStep: CheckoutStep }) {
+   335→  // Define the three checkout steps with their icons and labels
+   336→  const steps = [
+   337→    { key: 'shipping' as const, label: 'Shipping', icon: Truck },
+   338→    { key: 'payment' as const, label: 'Payment', icon: CreditCard },
+   339→    { key: 'confirmation' as const, label: 'Confirmation', icon: CheckCircle2 },
+   340→  ]
+   341→
+   342→  // Determine the index of the current step for progress calculation
+   343→  const currentIndex = steps.findIndex((s) => s.key === currentStep)
+   344→
+   345→  return (
+   346→    <div className="flex items-center justify-center gap-0 w-full max-w-lg mx-auto mb-8">
+   347→      {steps.map((step, index) => {
+   348→        const isCompleted = index < currentIndex  // Step was already finished
+   349→        const isCurrent = index === currentIndex   // Step is currently active
+   350→        const Icon = step.icon
+   351→
+   352→        return (
+   353→          <div key={step.key} className="flex items-center flex-1 last:flex-initial">
+   354→            {/* Step circle with icon — changes appearance based on state */}
+   355→            <div className="flex flex-col items-center gap-1.5">
+   356→              <div
+   357→                className={`h-10 w-10 rounded-full flex items-center justify-center border-2 transition-all duration-300 ${
+   358→                  isCompleted
+   359→                    ? 'bg-emerald-500 border-emerald-500 text-white'
+   360→                    : isCurrent
+   361→                      ? 'bg-primary border-primary text-primary-foreground'
+   362→                      : 'bg-background border-muted-foreground/30 text-muted-foreground'
+   363→                }`}
+   364→              >
+   365→                {/* Show checkmark for completed steps, icon for current/pending */}
+   366→                {isCompleted ? (
+   367→                  <CheckCircle2 className="h-5 w-5" />
+   368→                ) : (
+   369→                  <Icon className="h-5 w-5" />
+   370→                )}
+   371→              </div>
+   372→              {/* Step label — color changes based on state */}
+   373→              <span
+   374→                className={`text-xs font-medium whitespace-nowrap ${
+   375→                  isCompleted
+   376→                    ? 'text-emerald-600 dark:text-emerald-400'
+   377→                    : isCurrent
+   378→                      ? 'text-foreground'
+   379→                      : 'text-muted-foreground'
+   380→                }`}
+   381→              >
+   382→                {step.label}
+   383→              </span>
+   384→            </div>
+   385→            {/* Connecting line between steps — fills green when the preceding step is complete */}
+   386→            {index < steps.length - 1 && (
+   387→              <div
+   388→                className={`flex-1 h-0.5 mx-3 mt-[-1.25rem] transition-colors duration-300 ${
+   389→                  index < currentIndex
+   390→                    ? 'bg-emerald-500'
+   391→                    : 'bg-muted-foreground/20'
+   392→                }`}
+   393→              />
+   394→            )}
+   395→          </div>
+   396→        )
+   397→      })}
+   398→    </div>
+   399→  )
+   400→}
+   401→
+   402→// ============================================================================
+   403→// Order Summary Component
+   404→// ============================================================================
+   405→
+   406→/**
+   407→ * CheckoutOrderSummary renders a compact order summary showing all cart items,
+   408→ * price breakdown (subtotal, discount, shipping, tax, total), and optionally
+   409→ * wraps the content in a collapsible container for mobile views.
+   410→ *
+   411→ * @param props
+   412→ * @param props.couponResult    - Validated coupon result, or null if none applied
+   413→ * @param props.shippingMethod  - Selected shipping method ('standard' or 'express')
+   414→ * @param props.collapsible     - If true, wraps content in a Collapsible component (for mobile)
+   415→ *
+   416→ * @state isOpen - Controls the collapsible open/close state (mobile only)
+   417→ */
+   418→function CheckoutOrderSummary({
+   419→  couponResult,
+   420→  shippingMethod,
+   421→  collapsible = false,
+   422→}: {
+   423→  couponResult: CouponResult | null
+   424→  shippingMethod: string
+   425→  collapsible?: boolean
+   426→}) {
+   427→  const items = useCartStore((s) => s.items)
+   428→  /** Controls the collapsible section open state on mobile */
+   429→  const [isOpen, setIsOpen] = useState(false)
+   430→
+   431→  /** Calculate subtotal from all cart items (price × quantity) */
+   432→  const subtotal = useMemo(() => {
+   433→    return items.reduce((sum, item) => sum + item.price * item.quantity, 0)
+   434→  }, [items])
+   435→
+   436→  // Price breakdown calculations
+   437→  const discount = couponResult?.discount ?? 0                          // Discount from applied coupon
+   438→  const shipping =                                                      // Express: $9.99, Standard: free if $50+, else $9.99
+   439→    shippingMethod === 'express'
+   440→      ? 9.99
+   441→      : subtotal >= 50
+   442→        ? 0
+   443→        : 9.99
+   444→  const afterDiscount = subtotal - discount                             // Subtotal minus coupon discount
+   445→  const tax = Math.round(afterDiscount * 0.08 * 100) / 100             // 8% tax on discounted subtotal
+   446→  const total = Math.round((afterDiscount + shipping + tax) * 100) / 100 // Final total
+   447→
+   448→  /** The summary content — reused in both collapsible and non-collapsible modes */
+   449→  const content = (
+   450→    <div className="space-y-3">
+   451→      {/* Cart items list — scrollable if many items */}
+   452→      <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+   453→        {items.map((item) => (
+   454→          <div
+   455→            key={`${item.productId}-${item.variantId || 'default'}`}
+   456→            className="flex items-center gap-3"
+   457→          >
+   458→            {/* Product image placeholder with gradient */}
+   459→            <div
+   460→              className={`h-10 w-10 rounded-md bg-gradient-to-br ${getGradient(item.productId)} flex items-center justify-center shrink-0`}
+   461→            >
+   462→              <ShoppingBag className="h-4 w-4 text-white/70" />
+   463→            </div>
+   464→            {/* Product name and variant */}
+   465→            <div className="flex-1 min-w-0">
+   466→              <p className="text-sm font-medium truncate">{item.name}</p>
+   467→              {item.variantName && (
+   468→                <p className="text-xs text-muted-foreground">{item.variantName}</p>
+   469→              )}
+   470→            </div>
+   471→            {/* Line total and quantity indicator */}
+   472→            <div className="text-right shrink-0">
+   473→              <p className="text-sm font-medium">
+   474→                {formatPrice(item.price * item.quantity)}
+   475→              </p>
+   476→              {item.quantity > 1 && (
+   477→                <p className="text-xs text-muted-foreground">x{item.quantity}</p>
+   478→              )}
+   479→            </div>
+   480→          </div>
+   481→        ))}
+   482→      </div>
+   483→
+   484→      <Separator />
+   485→
+   486→      {/* Price breakdown section */}
+   487→      <div className="space-y-2 text-sm">
+   488→        <div className="flex justify-between">
+   489→          <span className="text-muted-foreground">Subtotal</span>
+   490→          <span>{formatPrice(subtotal)}</span>
+   491→        </div>
+   492→        {/* Discount line — only shown when a coupon discount exists */}
+   493→        {discount > 0 && (
+   494→          <div className="flex justify-between">
+   495→            <span className="text-muted-foreground">Discount</span>
+   496→            <span className="text-emerald-600 dark:text-emerald-400">
+   497→              -{formatPrice(discount)}
+   498→            </span>
+   499→          </div>
+   500→        )}
+   501→        {/* Shipping line — shows "Free" badge or dollar amount */}
+   502→        <div className="flex justify-between">
+   503→          <span className="text-muted-foreground">Shipping</span>
+   504→          {shipping === 0 ? (
+   505→            <Badge
+   506→              variant="secondary"
+   507→              className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 font-normal"
+   508→            >
+   509→              Free
+   510→            </Badge>
+   511→          ) : (
+   512→            <span>{formatPrice(shipping)}</span>
+   513→          )}
+   514→        </div>
+   515→        {/* Tax line — fixed 8% rate */}
+   516→        <div className="flex justify-between">
+   517→          <span className="text-muted-foreground">Tax (8%)</span>
+   518→          <span>{formatPrice(tax)}</span>
+   519→        </div>
+   520→      </div>
+   521→
+   522→      <Separator />
+   523→
+   524→      {/* Final total */}
+   525→      <div className="flex justify-between items-baseline">
+   526→        <span className="font-semibold">Total</span>
+   527→        <span className="text-lg font-bold">{formatPrice(total)}</span>
+   528→      </div>
+   529→    </div>
+   530→  )
+   531→
+   532→  // Render in collapsible mode for mobile, or standard div for desktop
+   533→  if (collapsible) {
+   534→    return (
+   535→      <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+   536→        <CollapsibleTrigger className="flex items-center justify-between w-full py-3">
+   537→          <span className="font-semibold text-sm">
+   538→            Order Summary ({items.reduce((s, i) => s + i.quantity, 0)} items)
+   539→          </span>
+   540→          <ChevronDown
+   541→            className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+   542→          />
+   543→        </CollapsibleTrigger>
+   544→        <CollapsibleContent>{content}</CollapsibleContent>
+   545→      </Collapsible>
+   546→    )
+   547→  }
+   548→
+   549→  return <div className="space-y-4">{content}</div>
+   550→}
+   551→
+   552→// ============================================================================
+   553→// Step 1: Shipping
+   554→// ============================================================================
+   555→
+   556→/**
+   557→ * ShippingStep renders the first checkout step containing the shipping address
+   558→ * form and shipping method selection. The form is validated using Zod schema
+   559→ * and react-hook-form. It includes a sidebar with the order summary.
+   560→ *
+   561→ * @param props
+   562→ * @param props.onSubmit               - Callback fired when the shipping form is submitted with valid data
+   563→ * @param props.shippingMethod         - Currently selected shipping method ('standard' or 'express')
+   564→ * @param props.onShippingMethodChange - Callback to update the selected shipping method
+   565→ * @param props.couponResult           - Validated coupon result for price calculation, or null
+   566→ */
+   567→function ShippingStep({
+   568→  onSubmit,
+   569→  shippingMethod,
+   570→  onShippingMethodChange,
+   571→  couponResult,
+   572→}: {
+   573→  onSubmit: (data: ShippingFormValues) => void
+   574→  shippingMethod: string
+   575→  onShippingMethodChange: (method: string) => void
+   576→  couponResult: CouponResult | null
+   577→}) {
+   578→  const navigate = useRouterStore((s) => s.navigate)
+   579→  const subtotal = useCartStore((s) => s.getSubtotal())
+   580→
+   581→  // Initialize the shipping form with Zod resolver and default values
+   582→  const form = useForm<ShippingFormValues>({
+   583→    resolver: zodResolver(shippingSchema),
+   584→    defaultValues: {
+   585→      firstName: '',
+   586→      lastName: '',
+   587→      street1: '',
+   588→      street2: '',
+   589→      city: '',
+   590→      state: '',
+   591→      postalCode: '',
+   592→      country: 'US',
+   593→      phone: '',
+   594→    },
+   595→  })
+   596→
+   597→  // Determine if standard shipping is free based on subtotal threshold
+   598→  const standardShippingFree = subtotal >= 50
+   599→
+   600→  return (
+   601→    <motion.div
+   602→      initial={{ opacity: 0, x: 50 }}
+   603→      animate={{ opacity: 1, x: 0 }}
+   604→      exit={{ opacity: 0, x: -50 }}
+   605→      transition={{ duration: 0.3 }}
+   606→    >
+   607→      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+   608→        {/* Shipping form — spans 2 columns on large screens */}
+   609→        <div className="lg:col-span-2">
+   610→          <Card>
+   611→            <CardHeader>
+   612→              <CardTitle className="flex items-center gap-2">
+   613→                <Truck className="h-5 w-5" />
+   614→                Shipping Address
+   615→              </CardTitle>
+   616→            </CardHeader>
+   617→            <CardContent>
+   618→              <Form {...form}>
+   619→                <form
+   620→                  onSubmit={form.handleSubmit(onSubmit)}
+   621→                  className="space-y-4"
+   622→                >
+   623→                  {/* First and last name — side by side on larger screens */}
+   624→                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   625→                    <FormField
+   626→                      control={form.control}
+   627→                      name="firstName"
+   628→                      render={({ field }) => (
+   629→                        <FormItem>
+   630→                          <FormLabel>First Name</FormLabel>
+   631→                          <FormControl>
+   632→                            <Input placeholder="John" {...field} />
+   633→                          </FormControl>
+   634→                          <FormMessage />
+   635→                        </FormItem>
+   636→                      )}
+   637→                    />
+   638→                    <FormField
+   639→                      control={form.control}
+   640→                      name="lastName"
+   641→                      render={({ field }) => (
+   642→                        <FormItem>
+   643→                          <FormLabel>Last Name</FormLabel>
+   644→                          <FormControl>
+   645→                            <Input placeholder="Doe" {...field} />
+   646→                          </FormControl>
+   647→                          <FormMessage />
+   648→                        </FormItem>
+   649→                      )}
+   650→                    />
+   651→                  </div>
+   652→
+   653→                  {/* Street address line 1 — required */}
+   654→                  <FormField
+   655→                    control={form.control}
+   656→                    name="street1"
+   657→                    render={({ field }) => (
+   658→                      <FormItem>
+   659→                        <FormLabel>Street Address</FormLabel>
+   660→                        <FormControl>
+   661→                          <Input placeholder="123 Main St" {...field} />
+   662→                        </FormControl>
+   663→                        <FormMessage />
+   664→                      </FormItem>
+   665→                    )}
+   666→                  />
+   667→                  {/* Street address line 2 — optional (apartment, suite, etc.) */}
+   668→                  <FormField
+   669→                    control={form.control}
+   670→                    name="street2"
+   671→                    render={({ field }) => (
+   672→                      <FormItem>
+   673→                        <FormLabel>
+   674→                          Apartment, suite, etc.{' '}
+   675→                          <span className="text-muted-foreground">(optional)</span>
+   676→                        </FormLabel>
+   677→                        <FormControl>
+   678→                          <Input placeholder="Apt 4B" {...field} />
+   679→                        </FormControl>
+   680→                        <FormMessage />
+   681→                      </FormItem>
+   682→                    )}
+   683→                  />
+   684→
+   685→                  {/* City, State, and Postal Code — 3-column grid on larger screens */}
+   686→                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+   687→                    <FormField
+   688→                      control={form.control}
+   689→                      name="city"
+   690→                      render={({ field }) => (
+   691→                        <FormItem>
+   692→                          <FormLabel>City</FormLabel>
+   693→                          <FormControl>
+   694→                            <Input placeholder="New York" {...field} />
+   695→                          </FormControl>
+   696→                          <FormMessage />
+   697→                        </FormItem>
+   698→                      )}
+   699→                    />
+   700→                    <FormField
+   701→                      control={form.control}
+   702→                      name="state"
+   703→                      render={({ field }) => (
+   704→                        <FormItem>
+   705→                          <FormLabel>State</FormLabel>
+   706→                          <FormControl>
+   707→                            <Input placeholder="NY" {...field} />
+   708→                          </FormControl>
+   709→                          <FormMessage />
+   710→                        </FormItem>
+   711→                      )}
+   712→                    />
+   713→                    <FormField
+   714→                      control={form.control}
+   715→                      name="postalCode"
+   716→                      render={({ field }) => (
+   717→                        <FormItem className="col-span-2 sm:col-span-1">
+   718→                          <FormLabel>Postal Code</FormLabel>
+   719→                          <FormControl>
+   720→                            <Input placeholder="10001" {...field} />
+   721→                          </FormControl>
+   722→                          <FormMessage />
+   723→                        </FormItem>
+   724→                      )}
+   725→                    />
+   726→                  </div>
+   727→
+   728→                  {/* Country and Phone — 2-column grid on larger screens */}
+   729→                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   730→                    <FormField
+   731→                      control={form.control}
+   732→                      name="country"
+   733→                      render={({ field }) => (
+   734→                        <FormItem>
+   735→                          <FormLabel>Country</FormLabel>
+   736→                          <FormControl>
+   737→                            <Input placeholder="US" {...field} />
+   738→                          </FormControl>
+   739→                          <FormMessage />
+   740→                        </FormItem>
+   741→                      )}
+   742→                    />
+   743→                    <FormField
+   744→                      control={form.control}
+   745→                      name="phone"
+   746→                      render={({ field }) => (
+   747→                        <FormItem>
+   748→                          <FormLabel>Phone Number</FormLabel>
+   749→                          <FormControl>
+   750→                            <Input placeholder="(555) 123-4567" {...field} />
+   751→                          </FormControl>
+   752→                          <FormMessage />
+   753→                        </FormItem>
+   754→                      )}
+   755→                    />
+   756→                  </div>
+   757→
+   758→                  <Separator className="my-6" />
+   759→
+   760→                  {/* Shipping method selection — radio group with styled cards */}
+   761→                  <div>
+   762→                    <h3 className="font-semibold mb-3">Shipping Method</h3>
+   763→                    <RadioGroup
+   764→                      value={shippingMethod}
+   765→                      onValueChange={onShippingMethodChange}
+   766→                      className="space-y-3"
+   767→                    >
+   768→                      {/* Standard shipping option — free for orders $50+ */}
+   769→                      <Label
+   770→                        htmlFor="standard"
+   771→                        className={`flex items-center justify-between rounded-lg border p-4 cursor-pointer transition-colors ${
+   772→                          shippingMethod === 'standard'
+   773→                            ? 'border-primary bg-primary/5'
+   774→                            : 'border-border hover:border-primary/50'
+   775→                        }`}
+   776→                      >
+   777→                        <div className="flex items-center gap-3">
+   778→                          <RadioGroupItem value="standard" id="standard" />
+   779→                          <div>
+   780→                            <p className="font-medium text-sm">Standard Shipping</p>
+   781→                            <p className="text-xs text-muted-foreground">
+   782→                              5-7 business days
+   783→                            </p>
+   784→                          </div>
+   785→                        </div>
+   786→                        {/* Price display — "Free" badge if subtotal >= $50, otherwise $9.99 */}
+   787→                        <span className="text-sm font-medium">
+   788→                          {standardShippingFree ? (
+   789→                            <Badge
+   790→                              variant="secondary"
+   791→                              className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400"
+   792→                            >
+   793→                              Free
+   794→                            </Badge>
+   795→                          ) : (
+   796→                            '$9.99'
+   797→                          )}
+   798→                        </span>
+   799→                      </Label>
+   800→
+   801→                      {/* Express shipping option — always $9.99 */}
+   802→                      <Label
+   803→                        htmlFor="express"
+   804→                        className={`flex items-center justify-between rounded-lg border p-4 cursor-pointer transition-colors ${
+   805→                          shippingMethod === 'express'
+   806→                            ? 'border-primary bg-primary/5'
+   807→                            : 'border-border hover:border-primary/50'
+   808→                        }`}
+   809→                      >
+   810→                        <div className="flex items-center gap-3">
+   811→                          <RadioGroupItem value="express" id="express" />
+   812→                          <div>
+   813→                            <p className="font-medium text-sm">Express Shipping</p>
+   814→                            <p className="text-xs text-muted-foreground">
+   815→                              2-3 business days
+   816→                            </p>
+   817→                          </div>
+   818→                        </div>
+   819→                        <span className="text-sm font-medium">$9.99</span>
+   820→                      </Label>
+   821→                    </RadioGroup>
+   822→                  </div>
+   823→
+   824→                  {/* Navigation buttons — back to cart and continue to payment */}
+   825→                  <div className="flex items-center justify-between pt-4">
+   826→                    <Button
+   827→                      type="button"
+   828→                      variant="ghost"
+   829→                      className="gap-2"
+   830→                      onClick={() => navigate('cart')}
+   831→                    >
+   832→                      <ArrowLeft className="h-4 w-4" />
+   833→                      Back to Cart
+   834→                    </Button>
+   835→                    <Button type="submit" className="gap-2">
+   836→                      Continue to Payment
+   837→                      <ChevronRight className="h-4 w-4" />
+   838→                    </Button>
+   839→                  </div>
+   840→                </form>
+   841→              </Form>
+   842→            </CardContent>
+   843→          </Card>
+   844→        </div>
+   845→
+   846→        {/* Sidebar order summary — sticky on scroll */}
+   847→        <div className="lg:col-span-1">
+   848→          <Card className="sticky top-24">
+   849→            <CardHeader className="pb-3">
+   850→              <CardTitle className="text-lg">Order Summary</CardTitle>
+   851→            </CardHeader>
+   852→            <CardContent>
+   853→              <CheckoutOrderSummary
+   854→                couponResult={couponResult}
+   855→                shippingMethod={shippingMethod}
+   856→              />
+   857→            </CardContent>
+   858→          </Card>
+   859→        </div>
+   860→      </div>
+   861→    </motion.div>
+   862→  )
+   863→}
+   864→
+   865→// ============================================================================
+   866→// Step 2: Payment
+   867→// ============================================================================
+   868→
+   869→/**
+   870→ * PaymentStep renders the second checkout step containing the payment card form.
+   871→ * Includes card number formatting (auto-spaces every 4 digits), expiry formatting
+   872→ * (auto-slash after month), and CVC digit-only input. The "Place Order" button
+   873→ * triggers the order creation API call.
+   874→ *
+   875→ * @param props
+   876→ * @param props.onSubmit      - Callback fired when the payment form is submitted with valid data
+   877→ * @param props.onBack        - Callback to navigate back to the shipping step
+   878→ * @param props.shippingMethod - Selected shipping method for price calculation
+   879→ * @param props.couponResult  - Validated coupon result for price calculation, or null
+   880→ * @param props.isSubmitting  - Whether the order creation request is in progress
+   881→ */
+   882→function PaymentStep({
+   883→  onSubmit,
+   884→  onBack,
+   885→  shippingMethod,
+   886→  couponResult,
+   887→  isSubmitting,
+   888→}: {
+   889→  onSubmit: (data: PaymentFormValues) => void
+   890→  onBack: () => void
+   891→  shippingMethod: string
+   892→  couponResult: CouponResult | null
+   893→  isSubmitting: boolean
+   894→}) {
+   895→  // Initialize the payment form with Zod resolver and default values
+   896→  const form = useForm<PaymentFormValues>({
+   897→    resolver: zodResolver(paymentSchema),
+   898→    defaultValues: {
+   899→      cardNumber: '',
+   900→      expiry: '',
+   901→      cvc: '',
+   902→    },
+   903→  })
+   904→
+   905→  /**
+   906→   * Formats a card number string by stripping non-digits and inserting
+   907→   * a space every 4 digits for readability (e.g., "4242 4242 4242 4242").
+   908→   *
+   909→   * @param value - Raw input string from the card number field
+   910→   * @returns Formatted card number string with spaces
+   911→   */
+   912→  const formatCardNumber = (value: string) => {
+   913→    const digits = value.replace(/\D/g, '').slice(0, 16)
+   914→    return digits.replace(/(\d{4})(?=\d)/g, '$1 ')
+   915→  }
+   916→
+   917→  /**
+   918→   * Formats an expiry date string by stripping non-digits and inserting
+   919→   * a slash after the first 2 digits (e.g., "12/25").
+   920→   *
+   921→   * @param value - Raw input string from the expiry field
+   922→   * @returns Formatted expiry string with slash separator
+   923→   */
+   924→  const formatExpiry = (value: string) => {
+   925→    const digits = value.replace(/\D/g, '').slice(0, 4)
+   926→    if (digits.length >= 3) {
+   927→      return digits.slice(0, 2) + '/' + digits.slice(2)
+   928→    }
+   929→    return digits
+   930→  }
+   931→
+   932→  return (
+   933→    <motion.div
+   934→      initial={{ opacity: 0, x: 50 }}
+   935→      animate={{ opacity: 1, x: 0 }}
+   936→      exit={{ opacity: 0, x: -50 }}
+   937→      transition={{ duration: 0.3 }}
+   938→    >
+   939→      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+   940→        {/* Payment form card — spans 2 columns on large screens */}
+   941→        <div className="lg:col-span-2">
+   942→          <Card>
+   943→            <CardHeader>
+   944→              <CardTitle className="flex items-center gap-2">
+   945→                <CreditCard className="h-5 w-5" />
+   946→                Payment Details
+   947→              </CardTitle>
+   948→            </CardHeader>
+   949→            <CardContent>
+   950→              <Form {...form}>
+   951→                <form
+   952→                  onSubmit={form.handleSubmit(onSubmit)}
+   953→                  className="space-y-4"
+   954→                >
+   955→                  {/* Card number input — auto-formats with spaces every 4 digits */}
+   956→                  <FormField
+   957→                    control={form.control}
+   958→                    name="cardNumber"
+   959→                    render={({ field }) => (
+   960→                      <FormItem>
+   961→                        <FormLabel>Card Number</FormLabel>
+   962→                        <FormControl>
+   963→                          <Input
+   964→                            placeholder="4242 4242 4242 4242"
+   965→                            {...field}
+   966→                            onChange={(e) => {
+   967→                              // Intercept input and format the card number
+   968→                              field.onChange(formatCardNumber(e.target.value))
+   969→                            }}
+   970→                            maxLength={19}
+   971→                          />
+   972→                        </FormControl>
+   973→                        <FormMessage />
+   974→                      </FormItem>
+   975→                    )}
+   976→                  />
+   977→
+   978→                  {/* Expiry date and CVC — side by side */}
+   979→                  <div className="grid grid-cols-2 gap-4">
+   980→                    {/* Expiry date input — auto-formats with slash (MM/YY) */}
+   981→                    <FormField
+   982→                      control={form.control}
+   983→                      name="expiry"
+   984→                      render={({ field }) => (
+   985→                        <FormItem>
+   986→                          <FormLabel>Expiry Date</FormLabel>
+   987→                          <FormControl>
+   988→                            <Input
+   989→                              placeholder="MM/YY"
+   990→                              {...field}
+   991→                              onChange={(e) => {
+   992→                                // Intercept input and format the expiry date
+   993→                                field.onChange(formatExpiry(e.target.value))
+   994→                              }}
+   995→                              maxLength={5}
+   996→                            />
+   997→                          </FormControl>
+   998→                          <FormMessage />
+   999→                        </FormItem>
+  1000→                      )}
+  1001→                    />
+  1002→                    {/* CVC input — digits only, masked as password */}
+  1003→                    <FormField
+  1004→                      control={form.control}
+  1005→                      name="cvc"
+  1006→                      render={({ field }) => (
+  1007→                        <FormItem>
+  1008→                          <FormLabel>CVC</FormLabel>
+  1009→                          <FormControl>
+  1010→                            <Input
+  1011→                              placeholder="123"
+  1012→                              {...field}
+  1013→                              onChange={(e) => {
+  1014→                                // Strip non-digits and limit to 4 characters
+  1015→                                const val = e.target.value
+  1016→                                    .replace(/\D/g, '')
+  1017→                                    .slice(0, 4)
+  1018→                                field.onChange(val)
+  1019→                              }}
+  1020→                              maxLength={4}
+  1021→                              type="password"
+  1022→                            />
+  1023→                          </FormControl>
+  1024→                          <FormMessage />
+  1025→                        </FormItem>
+  1026→                      )}
+  1027→                    />
+  1028→                  </div>
+  1029→
+  1030→                  {/* Security notice — reassures the customer about payment safety */}
+  1031→                  <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
+  1032→                    <Lock className="h-3.5 w-3.5 shrink-0" />
+  1033→                    <span>
+  1034→                      Your payment information is encrypted and secure. This is a
+  1035→                      demo — no real charges will be made.
+  1036→                    </span>
+  1037→                  </div>
+  1038→
+  1039→                  {/* Navigation buttons — back to shipping and place order */}
+  1040→                  <div className="flex items-center justify-between pt-4">
+  1041→                    <Button
+  1042→                      type="button"
+  1043→                      variant="ghost"
+  1044→                      className="gap-2"
+  1045→                      onClick={onBack}
+  1046→                      disabled={isSubmitting}
+  1047→                    >
+  1048→                      <ArrowLeft className="h-4 w-4" />
+  1049→                      Back to Shipping
+  1050→                    </Button>
+  1051→                    {/* Place Order button — shows loading spinner while submitting */}
+  1052→                    <Button type="submit" className="gap-2" disabled={isSubmitting}>
+  1053→                      {isSubmitting ? (
+  1054→                        <>
+  1055→                          <Loader2 className="h-4 w-4 animate-spin" />
+  1056→                          Processing...
+  1057→                        </>
+  1058→                      ) : (
+  1059→                        <>
+  1060→                          <Lock className="h-4 w-4" />
+  1061→                          Place Order
+  1062→                        </>
+  1063→                      )}
+  1064→                    </Button>
+  1065→                  </div>
+  1066→                </form>
+  1067→              </Form>
+  1068→            </CardContent>
+  1069→          </Card>
+  1070→        </div>
+  1071→
+  1072→        {/* Sidebar order summary — sticky on scroll */}
+  1073→        <div className="lg:col-span-1">
+  1074→          <Card className="sticky top-24">
+  1075→            <CardHeader className="pb-3">
+  1076→              <CardTitle className="text-lg">Order Summary</CardTitle>
+  1077→            </CardHeader>
+  1078→            <CardContent>
+  1079→              {/* Desktop: full expanded summary */}
+  1080→              <div className="hidden lg:block">
+  1081→                <CheckoutOrderSummary
+  1082→                  couponResult={couponResult}
+  1083→                  shippingMethod={shippingMethod}
+  1084→                />
+  1085→              </div>
+  1086→              {/* Mobile: collapsible summary to save screen space */}
+  1087→              <div className="lg:hidden">
+  1088→                <CheckoutOrderSummary
+  1089→                  couponResult={couponResult}
+  1090→                  shippingMethod={shippingMethod}
+  1091→                  collapsible
+  1092→                />
+  1093→              </div>
+  1094→            </CardContent>
+  1095→          </Card>
+  1096→        </div>
+  1097→      </div>
+  1098→    </motion.div>
+  1099→  )
+  1100→}
+  1101→
+  1102→// ============================================================================
+  1103→// Step 3: Confirmation
+  1104→// ============================================================================
+  1105→
+  1106→/**
+  1107→ * ConfirmationStep renders the final checkout step shown after a successful order.
+  1108→ * Displays a celebratory confetti animation, a success icon with spring animation,
+  1109→ * the order number, status, estimated delivery date, and navigation buttons
+  1110→ * to view orders or continue shopping.
+  1111→ *
+  1112→ * @param props
+  1113→ * @param props.orderNumber - The unique order number returned from the API after order creation
+  1114→ */
+  1115→function ConfirmationStep({ orderNumber }: { orderNumber: string }) {
+  1116→  const navigate = useRouterStore((s) => s.navigate)
+  1117→
+  1118→  return (
+  1119→    <motion.div
+  1120→      initial={{ opacity: 0, scale: 0.95 }}
+  1121→      animate={{ opacity: 1, scale: 1 }}
+  1122→      transition={{ duration: 0.4 }}
+  1123→      className="max-w-lg mx-auto text-center py-12"
+  1124→    >
+  1125→      {/* Full-screen confetti animation overlay */}
+  1126→      <ConfettiEffect />
+  1127→
+  1128→      {/* Animated success checkmark icon */}
+  1129→      <motion.div
+  1130→        initial={{ scale: 0 }}
+  1131→        animate={{ scale: 1 }}
+  1132→        transition={{ type: 'spring', stiffness: 200, damping: 15, delay: 0.2 }}
+  1133→        className="mx-auto mb-6"
+  1134→      >
+  1135→        <div className="h-24 w-24 rounded-full bg-emerald-100 dark:bg-emerald-950/50 flex items-center justify-center mx-auto">
+  1136→          <motion.div
+  1137→            initial={{ scale: 0 }}
+  1138→            animate={{ scale: 1 }}
+  1139→            transition={{ type: 'spring', stiffness: 200, damping: 15, delay: 0.4 }}
+  1140→          >
+  1141→            <CheckCircle2 className="h-12 w-12 text-emerald-500" />
+  1142→          </motion.div>
+  1143→        </div>
+  1144→      </motion.div>
+  1145→
+  1146→      {/* Success heading and message */}
+  1147→      <motion.div
+  1148→        initial={{ opacity: 0, y: 20 }}
+  1149→        animate={{ opacity: 1, y: 0 }}
+  1150→        transition={{ delay: 0.5 }}
+  1151→      >
+  1152→        <h2 className="text-2xl font-bold text-foreground mb-2">
+  1153→          Order Confirmed!
+  1154→        </h2>
+  1155→        <p className="text-muted-foreground mb-6">
+  1156→          Thank you for your purchase. Your order has been placed successfully.
+  1157→        </p>
+  1158→      </motion.div>
+  1159→
+  1160→      {/* Order details card — order number, status, and estimated delivery */}
+  1161→      <motion.div
+  1162→        initial={{ opacity: 0, y: 20 }}
+  1163→        animate={{ opacity: 1, y: 0 }}
+  1164→        transition={{ delay: 0.7 }}
+  1165→      >
+  1166→        <Card className="mb-8">
+  1167→          <CardContent className="p-6">
+  1168→            <div className="space-y-3">
+  1169→              {/* Order number — monospace font for readability */}
+  1170→              <div className="flex justify-between text-sm">
+  1171→                <span className="text-muted-foreground">Order Number</span>
+  1172→                <span className="font-mono font-semibold text-foreground">
+  1173→                  {orderNumber}
+  1174→                </span>
+  1175→              </div>
+  1176→              <Separator />
+  1177→              {/* Order status badge */}
+  1178→              <div className="flex justify-between text-sm">
+  1179→                <span className="text-muted-foreground">Status</span>
+  1180→                <Badge className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">
+  1181→                  Confirmed
+  1182→                </Badge>
+  1183→              </div>
+  1184→              {/* Estimated delivery — 7 days from now */}
+  1185→              <div className="flex justify-between text-sm">
+  1186→                <span className="text-muted-foreground">Estimated Delivery</span>
+  1187→                <span className="font-medium">
+  1188→                  {new Date(
+  1189→                    Date.now() + 7 * 24 * 60 * 60 * 1000
+  1190→                  ).toLocaleDateString('en-US', {
+  1191→                    month: 'short',
+  1192→                    day: 'numeric',
+  1193→                    year: 'numeric',
+  1194→                  })}
+  1195→                </span>
+  1196→              </div>
+  1197→            </div>
+  1198→          </CardContent>
+  1199→        </Card>
+  1200→      </motion.div>
+  1201→
+  1202→      {/* Action buttons — navigate to orders page or continue shopping */}
+  1203→      <motion.div
+  1204→        initial={{ opacity: 0, y: 20 }}
+  1205→        animate={{ opacity: 1, y: 0 }}
+  1206→        transition={{ delay: 0.9 }}
+  1207→        className="flex flex-col sm:flex-row items-center justify-center gap-3"
+  1208→      >
+  1209→        <Button
+  1210→          variant="outline"
+  1211→          className="gap-2 w-full sm:w-auto"
+  1212→          onClick={() => navigate('account-orders')}
+  1213→        >
+  1214→          <Package className="h-4 w-4" />
+  1215→          View Orders
+  1216→        </Button>
+  1217→        <Button
+  1218→          className="gap-2 w-full sm:w-auto"
+  1219→          onClick={() => navigate('products')}
+  1220→        >
+  1221→          <ShoppingBag className="h-4 w-4" />
+  1222→          Continue Shopping
+  1223→        </Button>
+  1224→      </motion.div>
+  1225→    </motion.div>
+  1226→  )
+  1227→}
+  1228→
+  1229→// ============================================================================
+  1230→// Main Checkout Page
+  1231→// ============================================================================
+  1232→
+  1233→/**
+  1234→ * CheckoutPage is the main checkout page component that orchestrates the
+  1235→ * three-step checkout flow: Shipping → Payment → Confirmation.
+  1236→ *
+  1237→ * It manages the overall checkout state including the current step, shipping
+  1238→ * address, shipping method, and coupon data. It also handles redirect guards
+  1239→ * (empty cart → cart page, unauthenticated → login) and the order creation
+  1240→ * API call.
+  1241→ *
+  1242→ * @state currentStep      - The active checkout step in the flow
+  1243→ * @state shippingMethod   - Selected shipping method ('standard' or 'express')
+  1244→ * @state shippingAddress  - Saved shipping address from step 1, used in order payload
+  1245→ * @state orderNumber      - The order number returned after successful order creation
+  1246→ * @state isSubmitting     - Whether the order creation API call is in progress
+  1247→ * @state orderError       - Error message from a failed order creation attempt
+  1248→ * @state couponResult     - Validated coupon result carried over from the cart page
+  1249→ *
+  1250→ * @store items       - Cart items from the global cart store (Zustand)
+  1251→ * @store clearCart   - Action to empty the cart after successful order
+  1252→ * @store couponCode  - Currently applied coupon code string
+  1253→ * @store user        - Authenticated user object from the auth store
+  1254→ */
+  1255→export default function CheckoutPage() {
+  1256→  const items = useCartStore((s) => s.items)
+  1257→  const clearCart = useCartStore((s) => s.clearCart)
+  1258→  const couponCode = useCartStore((s) => s.couponCode)
+  1259→  const navigate = useRouterStore((s) => s.navigate)
+  1260→  const user = useAuthStore((s) => s.user)
+  1261→
+  1262→  /** Current step in the checkout flow */
+  1263→  const [currentStep, setCurrentStep] = useState<CheckoutStep>('shipping')
+  1264→  /** Selected shipping method — affects shipping cost calculation */
+  1265→  const [shippingMethod, setShippingMethod] = useState('standard')
+  1266→  /** Shipping address data saved from step 1, included in the order payload */
+  1267→  const [shippingAddress, setShippingAddress] = useState<ShippingFormValues | null>(null)
+  1268→  /** Order number assigned by the backend after successful order creation */
+  1269→  const [orderNumber, setOrderNumber] = useState('')
+  1270→  /** Loading state during the order creation API call */
+  1271→  const [isSubmitting, setIsSubmitting] = useState(false)
+  1272→  /** Error message displayed when order creation fails */
+  1273→  const [orderError, setOrderError] = useState<string | null>(null)
+  1274→
+  1275→  /** Coupon result carried over from the cart page */
+  1276→  const [couponResult, setCouponResult] = useState<CouponResult | null>(null)
+  1277→
+  1278→  /**
+  1279→   * Redirect guard: navigate back to cart if the cart becomes empty.
+  1280→   * The confirmation step is exempt — the cart is cleared after order placement.
+  1281→   */
+  1282→  useEffect(() => {
+  1283→    if (items.length === 0 && currentStep !== 'confirmation') {
+  1284→      navigate('cart')
+  1285→    }
+  1286→  }, [items.length, currentStep, navigate])
+  1287→
+  1288→  /**
+  1289→   * Auth guard: redirect to login page if the user is not authenticated.
+  1290→   * Checkout requires an authenticated session to associate the order with a user.
+  1291→   */
+  1292→  useEffect(() => {
+  1293→    if (!user) {
+  1294→      navigate('login')
+  1295→    }
+  1296→  }, [user, navigate])
+  1297→
+  1298→  /**
+  1299→   * Re-validate the coupon on mount if one was applied in the cart.
+  1300→   * This ensures the coupon is still valid when the user reaches checkout,
+  1301→   * and fetches the discount amount for the order summary calculations.
+  1302→   * Silently fails if the coupon is no longer valid.
+  1303→   */
+  1304→  useEffect(() => {
+  1305→    if (couponCode && !couponResult) {
+  1306→      const subtotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0)
+  1307→      fetch(`/api/coupons?code=${encodeURIComponent(couponCode)}&subtotal=${subtotal}`)
+  1308→        .then((res) => res.json())
+  1309→        .then((data) => {
+  1310→          if (!data.error) {
+  1311→            setCouponResult(data)
+  1312→          }
+  1313→        })
+  1314→        .catch(() => {
+  1315→          // Silently fail — coupon will just not apply
+  1316→        })
+  1317→    }
+  1318→  }, [couponCode, couponResult, items])
+  1319→
+  1320→  /**
+  1321→   * Handles shipping form submission.
+  1322→   * Saves the shipping address to state and advances to the payment step.
+  1323→   * Scrolls to the top of the page so the user sees the payment form.
+  1324→   *
+  1325→   * @param data - Validated shipping form data from react-hook-form
+  1326→   */
+  1327→  const handleShippingSubmit = useCallback(
+  1328→    (data: ShippingFormValues) => {
+  1329→      setShippingAddress(data)
+  1330→      setCurrentStep('payment')
+  1331→      window.scrollTo({ top: 0, behavior: 'smooth' })
+  1332→    },
+  1333→    []
+  1334→  )
+  1335→
+  1336→  /**
+  1337→   * Handles payment form submission and creates the order via the API.
+  1338→   * Calculates the final price breakdown, assembles the order payload with
+  1339→   * all items, addresses, and pricing, then POSTs to /api/orders.
+  1340→   * On success, clears the cart and navigates to the confirmation step.
+  1341→   * On failure, displays an error banner.
+  1342→   *
+  1343→   * @param _data - Validated payment form data (not used in payload, but required by form)
+  1344→   */
+  1345→  const handlePaymentSubmit = useCallback(
+  1346→    async (_data: PaymentFormValues) => {
+  1347→      // Guard: ensure the user is still authenticated
+  1348→      if (!user?.id) {
+  1349→        setOrderError('Please sign in to place an order.')
+  1350→        navigate('login')
+  1351→        return
+  1352→      }
+  1353→
+  1354→      // Set loading state and clear any previous errors
+  1355→      setIsSubmitting(true)
+  1356→      setOrderError(null)
+  1357→
+  1358→      try {
+  1359→        // Calculate the full price breakdown for the order payload
+  1360→        const subtotal = items.reduce(
+  1361→          (sum, item) => sum + item.price * item.quantity,
+  1362→          0
+  1363→        )
+  1364→        const discount = couponResult?.discount ?? 0
+  1365→        const shipping =
+  1366→          shippingMethod === 'express'
+  1367→            ? 9.99
+  1368→            : subtotal >= 50
+  1369→              ? 0
+  1370→              : 9.99
+  1371→        const afterDiscount = subtotal - discount
+  1372→        const tax = Math.round(afterDiscount * 0.08 * 100) / 100
+  1373→        const total = Math.round((afterDiscount + shipping + tax) * 100) / 100
+  1374→
+  1375→        // Map cart items to the order item format expected by the API
+  1376→        const orderItems = items.map((item) => ({
+  1377→          productId: item.productId,
+  1378→          variantId: item.variantId || null,
+  1379→          productName: item.name,
+  1380→          variantName: item.variantName || null,
+  1381→          sku: item.sku,
+  1382→          price: item.price,
+  1383→          quantity: item.quantity,
+  1384→          total: item.price * item.quantity,
+  1385→          image: item.image || null,
+  1386→        }))
+  1387→
+  1388→        // Assemble the complete order payload
+  1389→        const orderPayload = {
+  1390→          userId: user.id,
+  1391→          items: orderItems,
+  1392→          shippingAddress,
+  1393→          billingAddress: shippingAddress,  // Billing same as shipping
+  1394→          shippingMethod:
+  1395→            shippingMethod === 'express' ? 'Express' : 'Standard',
+  1396→          subtotal,
+  1397→          taxAmount: tax,
+  1398→          shippingAmount: shipping,
+  1399→          discountAmount: discount,
+  1400→          totalAmount: total,
+  1401→          couponId: couponResult?.id || null,
+  1402→        }
+  1403→
+  1404→        // Send the order creation request to the API
+  1405→        const res = await fetch('/api/orders', {
+  1406→          method: 'POST',
+  1407→          headers: { 'Content-Type': 'application/json' },
+  1408→          body: JSON.stringify(orderPayload),
+  1409→        })
+  1410→
+  1411→        const data = await res.json()
+  1412→
+  1413→        if (!res.ok) {
+  1414→          // API returned an error — throw with the error message
+  1415→          throw new Error(data.error || 'Failed to place order')
+  1416→        }
+  1417→
+  1418→        // Order created successfully — update state and navigate to confirmation
+  1419→        setOrderNumber(data.orderNumber)
+  1420→        clearCart()  // Empty the cart now that the order is placed
+  1421→        setCurrentStep('confirmation')
+  1422→        window.scrollTo({ top: 0, behavior: 'smooth' })
+  1423→      } catch (error) {
+  1424→        // Log the error for debugging and display a user-friendly message
+  1425→        console.error('Order creation error:', error)
+  1426→        setOrderError(
+  1427→          error instanceof Error ? error.message : 'Failed to place order. Please try again.'
+  1428→        )
+  1429→      } finally {
+  1430→        // Always clear the loading state, regardless of success or failure
+  1431→        setIsSubmitting(false)
+  1432→      }
+  1433→    },
+  1434→    [items, shippingMethod, shippingAddress, couponResult, user, clearCart, navigate]
+  1435→  )
+  1436→
+  1437→  /**
+  1438→   * Handles navigating back from the payment step to the shipping step.
+  1439→   * Scrolls to the top of the page so the user sees the shipping form.
+  1440→   */
+  1441→  const handleBackToShipping = useCallback(() => {
+  1442→    setCurrentStep('shipping')
+  1443→    window.scrollTo({ top: 0, behavior: 'smooth' })
+  1444→  }, [])
+  1445→
+  1446→  return (
+  1447→    <div className="container mx-auto px-4 py-8 max-w-6xl">
+  1448→      {/* Page header */}
+  1449→      <motion.div
+  1450→        initial={{ opacity: 0, y: -10 }}
+  1451→        animate={{ opacity: 1, y: 0 }}
+  1452→        className="mb-6"
+  1453→      >
+  1454→        <h1 className="text-3xl font-bold text-foreground">Checkout</h1>
+  1455→        <p className="text-muted-foreground mt-1">
+  1456→          Complete your purchase
+  1457→        </p>
+  1458→      </motion.div>
+  1459→
+  1460→      {/* Step progress indicator */}
+  1461→      <CheckoutStepper currentStep={currentStep} />
+  1462→
+  1463→      {/* Error banner — displayed when order creation fails */}
+  1464→      {orderError && (
+  1465→        <motion.div
+  1466→          initial={{ opacity: 0, y: -10 }}
+  1467→          animate={{ opacity: 1, y: 0 }}
+  1468→          className="mb-6 rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive"
+  1469→        >
+  1470→          {orderError}
+  1471→        </motion.div>
+  1472→      )}
+  1473→
+  1474→      {/* Step content — animated transitions between steps */}
+  1475→      <AnimatePresence mode="wait">
+  1476→        {currentStep === 'shipping' && (
+  1477→          <ShippingStep
+  1478→            key="shipping"
+  1479→            onSubmit={handleShippingSubmit}
+  1480→            shippingMethod={shippingMethod}
+  1481→            onShippingMethodChange={setShippingMethod}
+  1482→            couponResult={couponResult}
+  1483→          />
+  1484→        )}
+  1485→        {currentStep === 'payment' && (
+  1486→          <PaymentStep
+  1487→            key="payment"
+  1488→            onSubmit={handlePaymentSubmit}
+  1489→            onBack={handleBackToShipping}
+  1490→            shippingMethod={shippingMethod}
+  1491→            couponResult={couponResult}
+  1492→            isSubmitting={isSubmitting}
+  1493→          />
+  1494→        )}
+  1495→        {currentStep === 'confirmation' && (
+  1496→          <ConfirmationStep key="confirmation" orderNumber={orderNumber} />
+  1497→        )}
+  1498→      </AnimatePresence>
+  1499→    </div>
+  1500→  )
+  1501→}
+  1502→

@@ -1,0 +1,884 @@
+     1→/**
+     2→ * @file cart-page.tsx
+     3→ * @description Shopping cart page component for the ShopForge e-commerce application.
+     4→ * Provides a full-featured cart experience with item management, coupon codes,
+     5→ * and an order summary sidebar with real-time price calculations.
+     6→ *
+     7→ * @keyfeatures
+     8→ * - Desktop table view and mobile card view for cart items (responsive)
+     9→ * - Quantity controls with increase/decrease buttons (min 1, max 99)
+    10→ * - Coupon code validation via API with apply/remove functionality
+    11→ * - Real-time price breakdown: subtotal, discount, shipping, tax, total
+    12→ * - Free shipping threshold indicator ($50+ orders ship free)
+    13→ * - Animated item removal and layout transitions via Framer Motion
+    14→ * - Empty cart state with call-to-action to continue shopping
+    15→ */
+    16→
+    17→'use client'
+    18→
+    19→import { useState, useMemo, useCallback } from 'react'
+    20→import { motion, AnimatePresence } from 'framer-motion'
+    21→import {
+    22→  ShoppingCart,
+    23→  Trash2,
+    24→  Minus,
+    25→  Plus,
+    26→  ArrowLeft,
+    27→  Tag,
+    28→  X,
+    29→  Truck,
+    30→  ShoppingBag,
+    31→  ChevronRight,
+    32→  Loader2,
+    33→  AlertCircle,
+    34→} from 'lucide-react'
+    35→import { useRouterStore } from '@/stores/router-store'
+    36→import { useCartStore, type LocalCartItem } from '@/stores/cart-store'
+    37→import { Button } from '@/components/ui/button'
+    38→import {
+    39→  Card,
+    40→  CardContent,
+    41→  CardHeader,
+    42→  CardTitle,
+    43→} from '@/components/ui/card'
+    44→import { Input } from '@/components/ui/input'
+    45→import { Separator } from '@/components/ui/separator'
+    46→import { Badge } from '@/components/ui/badge'
+    47→import {
+    48→  Table,
+    49→  TableBody,
+    50→  TableCell,
+    51→  TableHead,
+    52→  TableHeader,
+    53→  TableRow,
+    54→} from '@/components/ui/table'
+    55→
+    56→// ============================================================================
+    57→// Types
+    58→// ============================================================================
+    59→
+    60→/**
+    61→ * Represents the result returned from the coupon validation API.
+    62→ * Contains the coupon details and the calculated discount amount.
+    63→ *
+    64→ * @property id       - Unique coupon identifier from the database
+    65→ * @property code     - The coupon code string (e.g., "SAVE10")
+    66→ * @property type     - Discount type: "PERCENTAGE" or "FIXED"
+    67→ * @property value    - The discount value (percentage number or fixed dollar amount)
+    68→ * @property discount - The calculated discount amount in dollars applied to the current cart
+    69→ */
+    70→interface CouponResult {
+    71→  id: string
+    72→  code: string
+    73→  type: string
+    74→  value: number
+    75→  discount: number
+    76→}
+    77→
+    78→// ============================================================================
+    79→// Helpers
+    80→// ============================================================================
+    81→
+    82→/**
+    83→ * Formats a numeric price value into a USD currency string.
+    84→ * Uses the Intl.NumberFormat API for locale-aware formatting.
+    85→ *
+    86→ * @param price - The numeric price value to format
+    87→ * @returns Formatted currency string (e.g., "$19.99")
+    88→ */
+    89→function formatPrice(price: number): string {
+    90→  return new Intl.NumberFormat('en-US', {
+    91→    style: 'currency',
+    92→    currency: 'USD',
+    93→  }).format(price)
+    94→}
+    95→
+    96→/**
+    97→ * Array of Tailwind CSS gradient class pairs used as product image placeholders.
+    98→ * Each entry provides a unique color gradient to visually differentiate products
+    99→ * when actual product images are not available.
+   100→ */
+   101→const PRODUCT_GRADIENTS = [
+   102→  'from-rose-400 to-pink-500',
+   103→  'from-violet-400 to-purple-500',
+   104→  'from-cyan-400 to-blue-500',
+   105→  'from-emerald-400 to-teal-500',
+   106→  'from-amber-400 to-orange-500',
+   107→  'from-fuchsia-400 to-pink-500',
+   108→  'from-sky-400 to-indigo-400',
+   109→  'from-lime-400 to-green-500',
+   110→]
+   111→
+   112→/**
+   113→ * Generates a deterministic gradient class string based on a product ID.
+   114→ * Uses a simple hash function to consistently map the same product ID
+   115→ * to the same gradient, ensuring visual consistency across re-renders.
+   116→ *
+   117→ * @param productId - The unique product identifier to hash
+   118→ * @returns A Tailwind CSS gradient class string (e.g., "from-rose-400 to-pink-500")
+   119→ */
+   120→function getGradient(productId: string): string {
+   121→  let hash = 0
+   122→  for (let i = 0; i < productId.length; i++) {
+   123→    hash = productId.charCodeAt(i) + ((hash << 5) - hash)
+   124→  }
+   125→  return PRODUCT_GRADIENTS[Math.abs(hash) % PRODUCT_GRADIENTS.length]
+   126→}
+   127→
+   128→// ============================================================================
+   129→// Product Image Placeholder
+   130→// ============================================================================
+   131→
+   132→/**
+   133→ * ProductImagePlaceholder component renders a colored gradient square with a
+   134→ * shopping bag icon as a visual stand-in when no actual product image is available.
+   135→ * The gradient color is deterministically chosen based on the product ID.
+   136→ *
+   137→ * @param props
+   138→ * @param props.productId - Product ID used to select the gradient color
+   139→ * @param props.name      - Product name used for screen reader accessibility
+   140→ * @param props.className - Optional additional CSS classes for sizing/layout
+   141→ */
+   142→function ProductImagePlaceholder({
+   143→  productId,
+   144→  name,
+   145→  className,
+   146→}: {
+   147→  productId: string
+   148→  name: string
+   149→  className?: string
+   150→}) {
+   151→  // Select a consistent gradient based on the product ID hash
+   152→  const gradient = getGradient(productId)
+   153→  return (
+   154→    <div
+   155→      className={`bg-gradient-to-br ${gradient} flex items-center justify-center ${className || ''}`}
+   156→    >
+   157→      {/* Decorative shopping bag icon centered in the gradient */}
+   158→      <ShoppingBag className="h-6 w-6 text-white/70" />
+   159→      {/* Screen reader-only text for accessibility */}
+   160→      <span className="sr-only">{name}</span>
+   161→    </div>
+   162→  )
+   163→}
+   164→
+   165→// ============================================================================
+   166→// Quantity Selector
+   167→// ============================================================================
+   168→
+   169→/**
+   170→ * QuantitySelector provides a compact inline control for adjusting item quantity.
+   171→ * Consists of a minus button, a numeric display, and a plus button arranged horizontally.
+   172→ * The minus button is disabled when quantity is 1 (minimum) and the plus button
+   173→ * is disabled when quantity reaches 99 (maximum).
+   174→ *
+   175→ * @param props
+   176→ * @param props.quantity    - Current quantity value to display
+   177→ * @param props.onIncrease - Callback fired when the plus button is clicked
+   178→ * @param props.onDecrease - Callback fired when the minus button is clicked
+   179→ */
+   180→function QuantitySelector({
+   181→  quantity,
+   182→  onIncrease,
+   183→  onDecrease,
+   184→}: {
+   185→  quantity: number
+   186→  onIncrease: () => void
+   187→  onDecrease: () => void
+   188→}) {
+   189→  return (
+   190→    <div className="flex items-center gap-0">
+   191→      {/* Decrease button — disabled at minimum quantity of 1 */}
+   192→      <Button
+   193→        variant="outline"
+   194→        size="icon"
+   195→        className="h-8 w-8 rounded-r-none"
+   196→        onClick={onDecrease}
+   197→        disabled={quantity <= 1}
+   198→        aria-label="Decrease quantity"
+   199→      >
+   200→        <Minus className="h-3 w-3" />
+   201→      </Button>
+   202→      {/* Numeric quantity display centered between the two buttons */}
+   203→      <div className="flex h-8 w-10 items-center justify-center border-y border-input bg-background text-sm font-medium">
+   204→        {quantity}
+   205→      </div>
+   206→      {/* Increase button — disabled at maximum quantity of 99 */}
+   207→      <Button
+   208→        variant="outline"
+   209→        size="icon"
+   210→        className="h-8 w-8 rounded-l-none"
+   211→        onClick={onIncrease}
+   212→        disabled={quantity >= 99}
+   213→        aria-label="Increase quantity"
+   214→      >
+   215→        <Plus className="h-3 w-3" />
+   216→      </Button>
+   217→    </div>
+   218→  )
+   219→}
+   220→
+   221→// ============================================================================
+   222→// Empty Cart State
+   223→// ============================================================================
+   224→
+   225→/**
+   226→ * EmptyCart renders the empty-state view when the shopping cart has no items.
+   227→ * Displays a large cart icon with a "0" badge, a helpful message, and a
+   228→ * call-to-action button that navigates the user to the products page.
+   229→ *
+   230→ * @state Uses useRouterStore to navigate to the products page
+   231→ */
+   232→function EmptyCart() {
+   233→  const navigate = useRouterStore((s) => s.navigate)
+   234→
+   235→  return (
+   236→    <motion.div
+   237→      initial={{ opacity: 0, y: 20 }}
+   238→      animate={{ opacity: 1, y: 0 }}
+   239→      className="flex flex-col items-center justify-center py-20 px-4"
+   240→    >
+   241→      {/* Cart icon with zero-count badge */}
+   242→      <div className="relative mb-8">
+   243→        <div className="h-32 w-32 rounded-full bg-muted flex items-center justify-center">
+   244→          <ShoppingCart className="h-14 w-14 text-muted-foreground" />
+   245→        </div>
+   246→        {/* Badge showing zero items in the cart */}
+   247→        <div className="absolute -top-1 -right-1 h-8 w-8 rounded-full bg-background border-2 border-muted flex items-center justify-center">
+   248→          <span className="text-sm font-bold text-muted-foreground">0</span>
+   249→        </div>
+   250→      </div>
+   251→      {/* Empty cart messaging */}
+   252→      <h2 className="text-2xl font-bold text-foreground mb-2">
+   253→        Your cart is empty
+   254→      </h2>
+   255→      <p className="text-muted-foreground text-center mb-8 max-w-md">
+   256→        Looks like you haven&apos;t added anything to your cart yet. Explore our
+   257→        products and find something you love!
+   258→      </p>
+   259→      {/* Primary CTA — navigate to product listing */}
+   260→      <Button
+   261→        size="lg"
+   262→        className="gap-2"
+   263→        onClick={() => navigate('products')}
+   264→      >
+   265→        <ShoppingBag className="h-5 w-5" />
+   266→        Start Shopping
+   267→      </Button>
+   268→    </motion.div>
+   269→  )
+   270→}
+   271→
+   272→// ============================================================================
+   273→// Cart Item Row (Desktop)
+   274→// ============================================================================
+   275→
+   276→/**
+   277→ * CartItemRow renders a single cart item as a table row for the desktop view.
+   278→ * Displays the product image placeholder, name, variant, SKU, unit price,
+   279→ * quantity selector, line total, and a remove button.
+   280→ *
+   281→ * @param props
+   282→ * @param props.item             - The cart item data to render
+   283→ * @param props.onUpdateQuantity - Callback to update item quantity (productId, newQuantity, variantId?)
+   284→ * @param props.onRemove         - Callback to remove the item from the cart (productId, variantId?)
+   285→ */
+   286→function CartItemRow({
+   287→  item,
+   288→  onUpdateQuantity,
+   289→  onRemove,
+   290→}: {
+   291→  item: LocalCartItem
+   292→  onUpdateQuantity: (productId: string, quantity: number, variantId?: string) => void
+   293→  onRemove: (productId: string, variantId?: string) => void
+   294→}) {
+   295→  return (
+   296→    <>
+   297→      {/* Product info cell — image, name, variant, and SKU */}
+   298→      <TableCell className="py-4">
+   299→        <div className="flex items-center gap-4">
+   300→          <ProductImagePlaceholder
+   301→            productId={item.productId}
+   302→            name={item.name}
+   303→            className="h-16 w-16 rounded-lg shrink-0"
+   304→          />
+   305→          <div className="min-w-0">
+   306→            <p className="font-medium text-foreground truncate">{item.name}</p>
+   307→            {/* Conditionally render variant name if the item has a selected variant */}
+   308→            {item.variantName && (
+   309→              <p className="text-sm text-muted-foreground">{item.variantName}</p>
+   310→            )}
+   311→            <p className="text-xs text-muted-foreground mt-0.5">SKU: {item.sku}</p>
+   312→          </div>
+   313→        </div>
+   314→      </TableCell>
+   315→      {/* Unit price cell — shows sale price and optional strikethrough compare-at price */}
+   316→      <TableCell className="text-right py-4">
+   317→        <span className="font-medium">{formatPrice(item.price)}</span>
+   318→        {/* Show the original compare-at price if it's higher than the sale price */}
+   319→        {item.comparePrice && item.comparePrice > item.price && (
+   320→          <span className="ml-2 text-sm text-muted-foreground line-through">
+   321→            {formatPrice(item.comparePrice)}
+   322→          </span>
+   323→        )}
+   324→      </TableCell>
+   325→      {/* Quantity selector cell — centered within the column */}
+   326→      <TableCell className="py-4">
+   327→        <div className="flex justify-center">
+   328→          <QuantitySelector
+   329→            quantity={item.quantity}
+   330→            onIncrease={() => onUpdateQuantity(item.productId, item.quantity + 1, item.variantId)}
+   331→            onDecrease={() => onUpdateQuantity(item.productId, item.quantity - 1, item.variantId)}
+   332→          />
+   333→        </div>
+   334→      </TableCell>
+   335→      {/* Line total cell — price multiplied by quantity */}
+   336→      <TableCell className="text-right py-4 font-medium">
+   337→        {formatPrice(item.price * item.quantity)}
+   338→      </TableCell>
+   339→      {/* Remove button cell — deletes the item from the cart */}
+   340→      <TableCell className="py-4 text-right">
+   341→        <Button
+   342→          variant="ghost"
+   343→          size="icon"
+   344→          className="h-8 w-8 text-muted-foreground hover:text-destructive"
+   345→          onClick={() => onRemove(item.productId, item.variantId)}
+   346→          aria-label={`Remove ${item.name}`}
+   347→        >
+   348→          <Trash2 className="h-4 w-4" />
+   349→        </Button>
+   350→      </TableCell>
+   351→    </>
+   352→  )
+   353→}
+   354→
+   355→// ============================================================================
+   356→// Cart Item Card (Mobile)
+   357→// ============================================================================
+   358→
+   359→/**
+   360→ * CartItemCard renders a single cart item as a card layout for the mobile view.
+   361→ * Uses Framer Motion for smooth enter/exit animations when items are added or removed.
+   362→ * Layout is stacked vertically with product image, details, quantity controls, and price.
+   363→ *
+   364→ * @param props
+   365→ * @param props.item             - The cart item data to render
+   366→ * @param props.onUpdateQuantity - Callback to update item quantity (productId, newQuantity, variantId?)
+   367→ * @param props.onRemove         - Callback to remove the item from the cart (productId, variantId?)
+   368→ */
+   369→function CartItemCard({
+   370→  item,
+   371→  onUpdateQuantity,
+   372→  onRemove,
+   373→}: {
+   374→  item: LocalCartItem
+   375→  onUpdateQuantity: (productId: string, quantity: number, variantId?: string) => void
+   376→  onRemove: (productId: string, variantId?: string) => void
+   377→}) {
+   378→  return (
+   379→    <motion.div
+   380→      layout
+   381→      initial={{ opacity: 0, x: -20 }}
+   382→      animate={{ opacity: 1, x: 0 }}
+   383→      exit={{ opacity: 0, x: 20 }}
+   384→      className="flex gap-4 p-4 bg-card border rounded-lg"
+   385→    >
+   386→      {/* Product image placeholder */}
+   387→      <ProductImagePlaceholder
+   388→        productId={item.productId}
+   389→        name={item.name}
+   390→        className="h-20 w-20 rounded-lg shrink-0"
+   391→      />
+   392→      {/* Item details and controls */}
+   393→      <div className="flex-1 min-w-0">
+   394→        {/* Top row: name + remove button */}
+   395→        <div className="flex items-start justify-between gap-2">
+   396→          <div className="min-w-0">
+   397→            <p className="font-medium text-foreground truncate">{item.name}</p>
+   398→            {/* Conditionally render variant name */}
+   399→            {item.variantName && (
+   400→              <p className="text-sm text-muted-foreground">{item.variantName}</p>
+   401→            )}
+   402→          </div>
+   403→          {/* Remove item button */}
+   404→          <Button
+   405→            variant="ghost"
+   406→            size="icon"
+   407→            className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive -mt-1 -mr-2"
+   408→            onClick={() => onRemove(item.productId, item.variantId)}
+   409→            aria-label={`Remove ${item.name}`}
+   410→          >
+   411→            <Trash2 className="h-3.5 w-3.5" />
+   412→          </Button>
+   413→        </div>
+   414→        {/* Bottom row: quantity selector and line total */}
+   415→        <div className="flex items-center justify-between mt-3">
+   416→          <QuantitySelector
+   417→            quantity={item.quantity}
+   418→            onIncrease={() => onUpdateQuantity(item.productId, item.quantity + 1, item.variantId)}
+   419→            onDecrease={() => onUpdateQuantity(item.productId, item.quantity - 1, item.variantId)}
+   420→          />
+   421→          <div className="text-right">
+   422→            <p className="font-semibold">{formatPrice(item.price * item.quantity)}</p>
+   423→            {/* Show per-unit price when quantity is more than 1 */}
+   424→            {item.quantity > 1 && (
+   425→              <p className="text-xs text-muted-foreground">
+   426→                {formatPrice(item.price)} each
+   427→              </p>
+   428→            )}
+   429→          </div>
+   430→        </div>
+   431→      </div>
+   432→    </motion.div>
+   433→  )
+   434→}
+   435→
+   436→// ============================================================================
+   437→// Order Summary
+   438→// ============================================================================
+   439→
+   440→/**
+   441→ * OrderSummary renders the sidebar card that displays the cart's price breakdown
+   442→ * and coupon functionality. It calculates and displays subtotal, discount,
+   443→ * shipping, tax, and total in real-time as the cart changes.
+   444→ *
+   445→ * Features:
+   446→ * - Coupon code input with validation via API
+   447→ * - Applied coupon display with remove option
+   448→ * - Free shipping indicator for orders $50+
+   449→ * - 8% tax calculation
+   450→ * - Navigation buttons to checkout and continue shopping
+   451→ *
+   452→ * @param props
+   453→ * @param props.couponResult   - The validated coupon result, or null if none applied
+   454→ * @param props.onApplyCoupon  - Callback to validate and apply a coupon code
+   455→ * @param props.onRemoveCoupon - Callback to remove the currently applied coupon
+   456→ * @param props.couponLoading  - Whether a coupon validation request is in progress
+   457→ * @param props.couponError    - Error message from the last coupon validation attempt, or null
+   458→ *
+   459→ * @state couponInput - Local state for the coupon code text input
+   460→ */
+   461→function OrderSummary({
+   462→  couponResult,
+   463→  onApplyCoupon,
+   464→  onRemoveCoupon,
+   465→  couponLoading,
+   466→  couponError,
+   467→}: {
+   468→  couponResult: CouponResult | null
+   469→  onApplyCoupon: (code: string) => void
+   470→  onRemoveCoupon: () => void
+   471→  couponLoading: boolean
+   472→  couponError: string | null
+   473→}) {
+   474→  const navigate = useRouterStore((s) => s.navigate)
+   475→  const items = useCartStore((s) => s.items)
+   476→  const couponCode = useCartStore((s) => s.couponCode)
+   477→  /** Local input state for the coupon code text field */
+   478→  const [couponInput, setCouponInput] = useState('')
+   479→
+   480→  /** Calculate subtotal from all cart items (price × quantity) */
+   481→  const subtotal = useMemo(() => {
+   482→    return items.reduce((sum, item) => sum + item.price * item.quantity, 0)
+   483→  }, [items])
+   484→
+   485→  // Price breakdown calculations
+   486→  const discount = couponResult?.discount ?? 0                          // Discount from applied coupon
+   487→  const shipping = subtotal >= 50 ? 0 : 9.99                           // Free shipping threshold: $50
+   488→  const afterDiscount = subtotal - discount                             // Subtotal minus coupon discount
+   489→  const tax = Math.round(afterDiscount * 0.08 * 100) / 100             // 8% tax on discounted subtotal
+   490→  const total = Math.round((afterDiscount + shipping + tax) * 100) / 100 // Final total
+   491→
+   492→  /**
+   493→   * Handles applying the coupon code from the input field.
+   494→   * Trims whitespace before passing to the parent's onApplyCoupon callback.
+   495→   * Memoized to prevent unnecessary re-renders.
+   496→   */
+   497→  const handleApplyCoupon = useCallback(() => {
+   498→    if (couponInput.trim()) {
+   499→      onApplyCoupon(couponInput.trim())
+   500→    }
+   501→  }, [couponInput, onApplyCoupon])
+   502→
+   503→  return (
+   504→    <Card className="sticky top-24">
+   505→      <CardHeader className="pb-4">
+   506→        <CardTitle className="text-lg">Order Summary</CardTitle>
+   507→      </CardHeader>
+   508→      <CardContent className="space-y-4">
+   509→        {/* Item count and subtotal */}
+   510→        <div className="flex justify-between text-sm">
+   511→          <span className="text-muted-foreground">
+   512→            Items ({items.reduce((s, i) => s + i.quantity, 0)})
+   513→          </span>
+   514→          <span>{formatPrice(subtotal)}</span>
+   515→        </div>
+   516→
+   517→        {/* Coupon section — displays either the applied coupon or the input form */}
+   518→        <div className="space-y-2">
+   519→          {couponCode && couponResult ? (
+   520→            /* Applied coupon badge — shows code, discount type, amount, and remove button */
+   521→            <div className="flex items-center justify-between bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-md px-3 py-2">
+   522→              <div className="flex items-center gap-2">
+   523→                <Tag className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+   524→                <div>
+   525→                  <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+   526→                    {couponResult.code}
+   527→                  </p>
+   528→                  {/* Display discount type: percentage or fixed amount */}
+   529→                  <p className="text-xs text-emerald-600 dark:text-emerald-400">
+   530→                    {couponResult.type === 'PERCENTAGE'
+   531→                      ? `${couponResult.value}% off`
+   532→                      : `${formatPrice(couponResult.value)} off`}
+   533→                  </p>
+   534→                </div>
+   535→              </div>
+   536→              <div className="flex items-center gap-2">
+   537→                {/* Calculated discount amount in dollars */}
+   538→                <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+   539→                  -{formatPrice(discount)}
+   540→                </span>
+   541→                {/* Remove coupon button */}
+   542→                <Button
+   543→                  variant="ghost"
+   544→                  size="icon"
+   545→                  className="h-6 w-6 text-emerald-600 dark:text-emerald-400 hover:text-destructive"
+   546→                  onClick={onRemoveCoupon}
+   547→                  aria-label="Remove coupon"
+   548→                >
+   549→                  <X className="h-3.5 w-3.5" />
+   550→                </Button>
+   551→              </div>
+   552→            </div>
+   553→          ) : (
+   554→            /* Coupon code input form — text field with apply button */
+   555→            <div className="space-y-2">
+   556→              <div className="flex gap-2">
+   557→                <div className="relative flex-1">
+   558→                  <Tag className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+   559→                  <Input
+   560→                    placeholder="Coupon code"
+   561→                    className="pl-9 h-9"
+   562→                    value={couponInput}
+   563→                    /* Auto-uppercase the coupon input for better UX */
+   564→                    onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+   565→                    /* Allow submitting via Enter key */
+   566→                    onKeyDown={(e) => {
+   567→                      if (e.key === 'Enter') handleApplyCoupon()
+   568→                    }}
+   569→                    disabled={couponLoading}
+   570→                  />
+   571→                </div>
+   572→                <Button
+   573→                  variant="outline"
+   574→                  size="sm"
+   575→                  className="h-9 px-4"
+   576→                  onClick={handleApplyCoupon}
+   577→                  disabled={couponLoading || couponInput.trim().length === 0}
+   578→                >
+   579→                  {/* Show spinner while validating, otherwise "Apply" text */}
+   580→                  {couponLoading ? (
+   581→                    <Loader2 className="h-4 w-4 animate-spin" />
+   582→                  ) : (
+   583→                    'Apply'
+   584→                  )}
+   585→                </Button>
+   586→              </div>
+   587→              {/* Display coupon validation error if present */}
+   588→              {couponError && (
+   589→                <p className="text-xs text-destructive flex items-center gap-1">
+   590→                  <AlertCircle className="h-3 w-3" />
+   591→                  {couponError}
+   592→                </p>
+   593→              )}
+   594→            </div>
+   595→          )}
+   596→        </div>
+   597→
+   598→        <Separator />
+   599→
+   600→        {/* Subtotal line */}
+   601→        <div className="flex justify-between text-sm">
+   602→          <span className="text-muted-foreground">Subtotal</span>
+   603→          <span>{formatPrice(subtotal)}</span>
+   604→        </div>
+   605→
+   606→        {/* Discount line — only shown when a coupon is applied */}
+   607→        {discount > 0 && (
+   608→          <div className="flex justify-between text-sm">
+   609→            <span className="text-muted-foreground">Discount</span>
+   610→            <span className="text-emerald-600 dark:text-emerald-400">
+   611→              -{formatPrice(discount)}
+   612→            </span>
+   613→          </div>
+   614→        )}
+   615→
+   616→        {/* Shipping line — shows "Free" badge or dollar amount */}
+   617→        <div className="flex justify-between text-sm">
+   618→          <span className="text-muted-foreground">Shipping</span>
+   619→          {shipping === 0 ? (
+   620→            <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 font-normal">
+   621→              Free
+   622→            </Badge>
+   623→          ) : (
+   624→            <span>{formatPrice(shipping)}</span>
+   625→          )}
+   626→        </div>
+   627→        {/* Free shipping threshold reminder — shown only when shipping is not free */}
+   628→        {shipping > 0 && (
+   629→          <p className="text-xs text-muted-foreground">
+   630→            <Truck className="inline h-3 w-3 mr-1" />
+   631→            Free shipping on orders over $50.00
+   632→          </p>
+   633→        )}
+   634→
+   635→        {/* Tax line — fixed 8% rate */}
+   636→        <div className="flex justify-between text-sm">
+   637→          <span className="text-muted-foreground">Tax (8%)</span>
+   638→          <span>{formatPrice(tax)}</span>
+   639→        </div>
+   640→
+   641→        <Separator />
+   642→
+   643→        {/* Total line — the final amount the customer will pay */}
+   644→        <div className="flex justify-between items-baseline">
+   645→          <span className="font-semibold text-foreground">Total</span>
+   646→          <span className="text-xl font-bold">{formatPrice(total)}</span>
+   647→        </div>
+   648→
+   649→        {/* Primary CTA — navigate to the checkout page */}
+   650→        <Button
+   651→          className="w-full gap-2 h-11"
+   652→          size="lg"
+   653→          onClick={() => navigate('checkout')}
+   654→        >
+   655→          Proceed to Checkout
+   656→          <ChevronRight className="h-4 w-4" />
+   657→        </Button>
+   658→
+   659→        {/* Secondary CTA — navigate back to the products listing */}
+   660→        <Button
+   661→          variant="ghost"
+   662→          className="w-full gap-2"
+   663→          onClick={() => navigate('products')}
+   664→        >
+   665→          <ArrowLeft className="h-4 w-4" />
+   666→          Continue Shopping
+   667→        </Button>
+   668→      </CardContent>
+   669→    </Card>
+   670→  )
+   671→}
+   672→
+   673→// ============================================================================
+   674→// Main Cart Page
+   675→// ============================================================================
+   676→
+   677→/**
+   678→ * CartPage is the main shopping cart page component for ShopForge.
+   679→ * It orchestrates the full cart experience including item display,
+   680→ * quantity management, coupon validation, and order summary.
+   681→ *
+   682→ * The component uses a responsive layout:
+   683→ * - Desktop (lg+): 2/3 width cart items table + 1/3 order summary sidebar
+   684→ * - Mobile: Stacked card items + full-width order summary
+   685→ *
+   686→ * @state couponResult  - Validated coupon data from the API, or null
+   687→ * @state couponLoading - Loading state during coupon validation API call
+   688→ * @state couponError   - Error message from coupon validation, or null
+   689→ *
+   690→ * @store items          - Cart items from the global cart store (Zustand)
+   691→ * @store updateQuantity - Action to change an item's quantity
+   692→ * @store removeItem     - Action to remove an item from the cart
+   693→ * @store applyCoupon    - Action to store the applied coupon code
+   694→ * @store removeCoupon   - Action to clear the applied coupon code
+   695→ * @store couponCode     - Currently applied coupon code string
+   696→ */
+   697→export default function CartPage() {
+   698→  const items = useCartStore((s) => s.items)
+   699→  const updateQuantity = useCartStore((s) => s.updateQuantity)
+   700→  const removeItem = useCartStore((s) => s.removeItem)
+   701→  const applyCoupon = useCartStore((s) => s.applyCoupon)
+   702→  const removeCoupon = useCartStore((s) => s.removeCoupon)
+   703→  const couponCode = useCartStore((s) => s.couponCode)
+   704→  const navigate = useRouterStore((s) => s.navigate)
+   705→
+   706→  /** Validated coupon result returned from the API after successful validation */
+   707→  const [couponResult, setCouponResult] = useState<CouponResult | null>(null)
+   708→  /** Whether a coupon validation request is currently in flight */
+   709→  const [couponLoading, setCouponLoading] = useState(false)
+   710→  /** Error message from the last failed coupon validation attempt */
+   711→  const [couponError, setCouponError] = useState<string | null>(null)
+   712→
+   713→  /**
+   714→   * Handles coupon code validation by calling the coupons API endpoint.
+   715→   * Sends the coupon code and current subtotal to calculate the discount.
+   716→   * On success, stores the coupon result locally and persists the code in the cart store.
+   717→   * On failure, displays an appropriate error message.
+   718→   *
+   719→   * @param code - The coupon code string to validate
+   720→   */
+   721→  const handleApplyCoupon = useCallback(
+   722→    async (code: string) => {
+   723→      // Set loading state and clear any previous errors
+   724→      setCouponLoading(true)
+   725→      setCouponError(null)
+   726→
+   727→      // Calculate current subtotal for the API to determine discount
+   728→      const subtotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0)
+   729→
+   730→      try {
+   731→        // Call the coupon validation API with code and subtotal
+   732→        const res = await fetch(
+   733→          `/api/coupons?code=${encodeURIComponent(code)}&subtotal=${subtotal}`
+   734→        )
+   735→        const data = await res.json()
+   736→
+   737→        if (!res.ok) {
+   738→          // API returned an error — display the error message
+   739→          setCouponError(data.error || 'Invalid coupon code')
+   740→          return
+   741→        }
+   742→
+   743→        // Coupon is valid — store the result and persist the code
+   744→        setCouponResult(data)
+   745→        applyCoupon(code)
+   746→      } catch {
+   747→        // Network or unexpected error
+   748→        setCouponError('Failed to validate coupon. Please try again.')
+   749→      } finally {
+   750→        // Always clear loading state
+   751→        setCouponLoading(false)
+   752→      }
+   753→    },
+   754→    [items, applyCoupon]
+   755→  )
+   756→
+   757→  /**
+   758→   * Handles removing the currently applied coupon.
+   759→   * Clears the coupon from both local state and the global cart store.
+   760→   */
+   761→  const handleRemoveCoupon = useCallback(() => {
+   762→    removeCoupon()
+   763→    setCouponResult(null)
+   764→    setCouponError(null)
+   765→  }, [removeCoupon])
+   766→
+   767→  // Render the empty cart state if there are no items
+   768→  if (items.length === 0) {
+   769→    return <EmptyCart />
+   770→  }
+   771→
+   772→  return (
+   773→    <div className="container mx-auto px-4 py-8 max-w-7xl">
+   774→      {/* Page header with title, item count, and continue shopping link */}
+   775→      <motion.div
+   776→        initial={{ opacity: 0, y: -10 }}
+   777→        animate={{ opacity: 1, y: 0 }}
+   778→        className="mb-8"
+   779→      >
+   780→        <div className="flex items-center justify-between">
+   781→          <div>
+   782→            <h1 className="text-3xl font-bold text-foreground">Shopping Cart</h1>
+   783→            <p className="text-muted-foreground mt-1">
+   784→              {items.length} {items.length === 1 ? 'item' : 'items'} in your cart
+   785→            </p>
+   786→          </div>
+   787→          {/* Desktop-only continue shopping button */}
+   788→          <Button
+   789→            variant="ghost"
+   790→            className="gap-2 hidden sm:flex"
+   791→            onClick={() => navigate('products')}
+   792→          >
+   793→            <ArrowLeft className="h-4 w-4" />
+   794→            Continue Shopping
+   795→          </Button>
+   796→        </div>
+   797→      </motion.div>
+   798→
+   799→      {/* Main content grid: cart items (2/3) + order summary sidebar (1/3) */}
+   800→      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+   801→        {/* Cart items section — spans 2 columns on large screens */}
+   802→        <div className="lg:col-span-2">
+   803→          {/* Desktop table view — hidden on mobile */}
+   804→          <div className="hidden md:block">
+   805→            <Card>
+   806→              <CardContent className="p-0">
+   807→                <Table>
+   808→                  <TableHeader>
+   809→                    <TableRow>
+   810→                      <TableHead className="w-[40%]">Product</TableHead>
+   811→                      <TableHead className="text-right">Price</TableHead>
+   812→                      <TableHead className="text-center w-[140px]">Quantity</TableHead>
+   813→                      <TableHead className="text-right">Total</TableHead>
+   814→                      <TableHead className="w-[50px]" />
+   815→                    </TableRow>
+   816→                  </TableHeader>
+   817→                  <TableBody>
+   818→                    {/* AnimatePresence handles exit animations when items are removed */}
+   819→                    <AnimatePresence mode="popLayout">
+   820→                      {items.map((item) => (
+   821→                        <motion.tr
+   822→                          key={`${item.productId}-${item.variantId || 'default'}`}
+   823→                          layout
+   824→                          initial={{ opacity: 0 }}
+   825→                          animate={{ opacity: 1 }}
+   826→                          exit={{ opacity: 0, height: 0 }}
+   827→                          className="border-b transition-colors hover:bg-muted/50"
+   828→                        >
+   829→                          <CartItemRow
+   830→                            item={item}
+   831→                            onUpdateQuantity={updateQuantity}
+   832→                            onRemove={removeItem}
+   833→                          />
+   834→                        </motion.tr>
+   835→                      ))}
+   836→                    </AnimatePresence>
+   837→                  </TableBody>
+   838→                </Table>
+   839→              </CardContent>
+   840→            </Card>
+   841→          </div>
+   842→
+   843→          {/* Mobile card view — hidden on desktop, uses card layout instead of table */}
+   844→          <div className="md:hidden space-y-3">
+   845→            <AnimatePresence mode="popLayout">
+   846→              {items.map((item) => (
+   847→                <CartItemCard
+   848→                  key={`mobile-${item.productId}-${item.variantId || 'default'}`}
+   849→                  item={item}
+   850→                  onUpdateQuantity={updateQuantity}
+   851→                  onRemove={removeItem}
+   852→                />
+   853→              ))}
+   854→            </AnimatePresence>
+   855→          </div>
+   856→
+   857→          {/* Mobile-only continue shopping button — full width */}
+   858→          <div className="md:hidden mt-4">
+   859→            <Button
+   860→              variant="ghost"
+   861→              className="gap-2 w-full"
+   862→              onClick={() => navigate('products')}
+   863→            >
+   864→              <ArrowLeft className="h-4 w-4" />
+   865→              Continue Shopping
+   866→            </Button>
+   867→          </div>
+   868→        </div>
+   869→
+   870→        {/* Order summary sidebar — spans 1 column on large screens */}
+   871→        <div className="lg:col-span-1">
+   872→          <OrderSummary
+   873→            couponResult={couponResult}
+   874→            onApplyCoupon={handleApplyCoupon}
+   875→            onRemoveCoupon={handleRemoveCoupon}
+   876→            couponLoading={couponLoading}
+   877→            couponError={couponError}
+   878→          />
+   879→        </div>
+   880→      </div>
+   881→    </div>
+   882→  )
+   883→}
+   884→

@@ -16,10 +16,10 @@
  */
 
 import { NextResponse } from 'next/server'
-import { orderService } from '@/features/orders/services/order.service'
-import { couponService } from '@/features/coupons/services/coupon.service'
-import { createOrderSchema } from '@/lib/validators'
-import { handleApiError, ValidationError } from '@/lib/errors'
+import { orderService } from "@/modules/orders/services/order.service"
+import { couponService } from "@/modules/coupons/services/coupon.service"
+import { createOrderSchema } from "@/shared/validators"
+import { handleApiError, ValidationError } from "@/shared/lib/errors"
 
 /**
  * Handles GET requests to retrieve order data.

@@ -1,0 +1,719 @@
+     1→/**
+     2→ * @file types/index.ts
+     3→ * @description Centralized TypeScript type definitions for the ShopForge e-commerce application.
+     4→ *
+     5→ * This file serves as the single source of truth for all shared type definitions
+     6→ * used across the frontend. Types are organized by domain:
+     7→ *
+     8→ * - **Router**: Route identifiers and navigation state
+     9→ * - **Product**: Product listings, details, and variants
+    10→ * - **Cart**: Shopping cart items and cart display models
+    11→ * - **Order**: Order details, line items, and timeline events
+    12→ * - **Review**: Product review entries
+    13→ * - **User**: User profile data
+    14→ * - **Category**: Product category hierarchy
+    15→ * - **Brand**: Product brand information
+    16→ * - **Filters**: Product filtering and sorting parameters
+    17→ * - **API Response**: Standardized API response wrappers
+    18→ * - **Admin Stats**: Dashboard analytics data
+    19→ * - **Banner**: Promotional banner data
+    20→ * - **Coupon**: Discount coupon definitions
+    21→ * - **Address**: Shipping/billing address data
+    22→ *
+    23→ * Key Responsibilities:
+    24→ * - Provide strongly-typed contracts between API responses and UI components
+    25→ * - Ensure type safety across Zustand stores, hooks, and components
+    26→ * - Document the data shapes used throughout the application
+    27→ */
+    28→
+    29→// ============================================================================
+    30→// Router
+    31→// ============================================================================
+    32→
+    33→/**
+    34→ * Union type representing all navigable route identifiers in the application.
+    35→ *
+    36→ * Each value corresponds to a unique page/view in the SPA. The router store
+    37→ * uses these identifiers (rather than URL strings) for type-safe navigation.
+    38→ * URL mapping is handled separately in `router-store.ts`.
+    39→ *
+    40→ * Route naming convention:
+    41→ * - Top-level routes: single segment (e.g., `'home'`, `'cart'`, `'login'`)
+    42→ * - Nested routes: hyphen-separated hierarchy (e.g., `'account-orders'`, `'admin-analytics'`)
+    43→ * - Detail routes: suffixed with `-detail` (e.g., `'product-detail'`, `'account-order-detail'`)
+    44→ */
+    45→export type RoutePath =
+    46→  | 'home'
+    47→  | 'products'
+    48→  | 'product-detail'
+    49→  | 'cart'
+    50→  | 'checkout'
+    51→  | 'login'
+    52→  | 'register'
+    53→  | 'account'
+    54→  | 'account-orders'
+    55→  | 'account-order-detail'
+    56→  | 'account-wishlist'
+    57→  | 'account-addresses'
+    58→  | 'account-settings'
+    59→  | 'admin'
+    60→  | 'admin-products'
+    61→  | 'admin-orders'
+    62→  | 'admin-customers'
+    63→  | 'admin-analytics'
+    64→  | 'admin-coupons'
+    65→  | 'admin-reviews'
+    66→  | 'admin-settings'
+    67→  | 'admin-banners'
+    68→
+    69→/**
+    70→ * Shape of the router state, exposed by the router Zustand store.
+    71→ *
+    72→ * Combines the current route context (route + params) with navigation actions
+    73→ * and a history stack for back-navigation support.
+    74→ *
+    75→ * @property currentRoute - The currently active route identifier
+    76→ * @property params - Key-value map of route parameters (path + query params)
+    77→ * @property navigate - Action to navigate to a new route with optional params
+    78→ * @property goBack - Action to navigate to the previous route in history
+    79→ * @property history - Ordered stack of visited routes (last entry = current)
+    80→ */
+    81→export interface RouterState {
+    82→  currentRoute: RoutePath
+    83→  params: Record<string, string>
+    84→  navigate: (route: RoutePath, params?: Record<string, string>) => void
+    85→  goBack: () => void
+    86→  history: Array<{ route: RoutePath; params: Record<string, string> }>
+    87→}
+    88→
+    89→// ============================================================================
+    90→// Product
+    91→// ============================================================================
+    92→
+    93→/**
+    94→ * Lightweight product representation used in listing views (search results, category pages).
+    95→ *
+    96→ * This is a denormalized, read-optimized shape returned by the product listing API.
+    97→ * It includes only the fields needed for product cards and list items — heavy data
+    98→ * like full descriptions and variants are excluded for performance.
+    99→ *
+   100→ * @property id - Unique product identifier
+   101→ * @property name - Display name of the product
+   102→ * @property slug - URL-friendly identifier for SEO-friendly product URLs
+   103→ * @property shortDesc - Truncated description for card/list preview; null if not provided
+   104→ * @property price - Current selling price (may reflect a sale price)
+   105→ * @property comparePrice - Original/list price before discount; used for strikethrough display.
+   106→ *   Null when there is no discount (i.e., price === comparePrice)
+   107→ * @property images - JSON-encoded string of image URL array; must be parsed before use
+   108→ * @property avgRating - Average customer rating (0.0–5.0)
+   109→ * @property reviewCount - Total number of verified reviews
+   110→ * @property totalSold - Cumulative units sold (used for "popular" sorting)
+   111→ * @property isFeatured - Whether the product is featured on the homepage
+   112→ * @property isActive - Whether the product is published and visible to customers
+   113→ * @property category - The product's primary category (id, name, slug)
+   114→ * @property brand - The product's brand; null if unbranded
+   115→ * @property inventory - Array of inventory records (one per variant or one for the base product).
+   116→ *   Each record tracks available quantity and reserved (allocated but unshipped) quantity
+   117→ * @property tags - Array of tag objects; each contains a `tag` string for filtering
+   118→ * @property flashSaleProduct - Optional array of active flash sale pricing entries.
+   119→ *   When present, `salePrice` overrides the regular `price` during the sale window
+   120→ */
+   121→export interface ProductListItem {
+   122→  id: string
+   123→  name: string
+   124→  slug: string
+   125→  shortDesc: string | null
+   126→  price: number
+   127→  comparePrice: number | null
+   128→  images: string
+   129→  avgRating: number
+   130→  reviewCount: number
+   131→  totalSold: number
+   132→  isFeatured: boolean
+   133→  isActive: boolean
+   134→  category: { id: string; name: string; slug: string }
+   135→  brand: { id: string; name: string; slug: string } | null
+   136→  inventory: { quantity: number; reserved: number }[]
+   137→  tags: { tag: string }[]
+   138→  flashSaleProduct?: { salePrice: number; flashSale: { isActive: boolean; startsAt: string; endsAt: string } }[]
+   139→}
+   140→
+   141→/**
+   142→ * Full product representation used on the product detail page.
+   143→ *
+   144→ * Extends the listing model with comprehensive data needed for the detail view:
+   145→ * full description, variants, detailed inventory, reviews, and cost pricing.
+   146→ *
+   147→ * @property description - Full HTML/markdown product description
+   148→ * @property sku - Base SKU identifier; variants have their own SKUs
+   149→ * @property costPrice - Internal cost price for margin calculations; null if not tracked.
+   150→ *   Should never be exposed to customers
+   151→ * @property weight - Shipping weight (in the store's configured unit, typically kg)
+   152→ * @property dimensions - Shipping dimensions as a formatted string (e.g., "10x20x30 cm")
+   153→ * @property variants - Array of product variants (size, color, material, etc.)
+   154→ * @property inventory - Detailed inventory records including low-stock threshold and per-record SKU
+   155→ * @property reviews - Customer review entries for this product
+   156→ */
+   157→export interface ProductDetail {
+   158→  id: string
+   159→  name: string
+   160→  slug: string
+   161→  description: string
+   162→  shortDesc: string | null
+   163→  sku: string
+   164→  price: number
+   165→  comparePrice: number | null
+   166→  costPrice: number | null
+   167→  images: string
+   168→  isActive: boolean
+   169→  isFeatured: boolean
+   170→  weight: number | null
+   171→  dimensions: string | null
+   172→  avgRating: number
+   173→  reviewCount: number
+   174→  totalSold: number
+   175→  category: { id: string; name: string; slug: string }
+   176→  brand: { id: string; name: string; slug: string } | null
+   177→  variants: ProductVariant[]
+   178→  inventory: { id: string; quantity: number; reserved: number; lowStockThreshold: number; sku: string }[]
+   179→  tags: { tag: string }[]
+   180→  reviews: ReviewItem[]
+   181→  flashSaleProduct?: { salePrice: number; flashSale: { isActive: boolean; startsAt: string; endsAt: string } }[]
+   182→}
+   183→
+   184→/**
+   185→ * A specific variant of a product (e.g., "Large / Red" for a t-shirt).
+   186→ *
+   187→ * Variants allow a single product to have multiple purchasable configurations
+   188→ * with potentially different prices, SKUs, and images.
+   189→ *
+   190→ * @property id - Unique variant identifier
+   191→ * @property name - Human-readable variant label (e.g., "Large / Red")
+   192→ * @property sku - Variant-specific SKU for inventory and order tracking
+   193→ * @property price - Variant-specific selling price (may differ from base product price)
+   194→ * @property comparePrice - Variant-specific list price; null if no discount
+   195→ * @property images - JSON-encoded string of variant-specific image URLs; null if
+   196→ *   the variant inherits the parent product's images
+   197→ * @property attributes - JSON-encoded string of variant attributes (e.g., color, size)
+   198→ *   stored as key-value pairs for programmatic access
+   199→ * @property isActive - Whether this variant is available for purchase
+   200→ * @property inventory - Optional inventory record for this specific variant;
+   201→ *   null if inventory is tracked at the product level only
+   202→ */
+   203→export interface ProductVariant {
+   204→  id: string
+   205→  name: string
+   206→  sku: string
+   207→  price: number
+   208→  comparePrice: number | null
+   209→  images: string | null
+   210→  attributes: string
+   211→  isActive: boolean
+   212→  inventory?: { id: string; quantity: number; reserved: number } | null
+   213→}
+   214→
+   215→// ============================================================================
+   216→// Cart
+   217→// ============================================================================
+   218→
+   219→/**
+   220→ * A single item within a server-side cart display model.
+   221→ *
+   222→ * Unlike `LocalCartItem` (used in the client-side cart store), this type
+   223→ * represents the cart item as returned by the API, with product and variant
+   224→ * data embedded as nested objects rather than flattened fields.
+   225→ *
+   226→ * @property id - The cart item's unique identifier
+   227→ * @property productId - The parent product's ID
+   228→ * @property variantId - The selected variant's ID; null for products without variants
+   229→ * @property quantity - Number of units in the cart
+   230→ * @property product - Embedded product data for display (name, price, images)
+   231→ * @property variant - Embedded variant data; null if no variant is selected
+   232→ */
+   233→export interface CartItemDisplay {
+   234→  id: string
+   235→  productId: string
+   236→  variantId: string | null
+   237→  quantity: number
+   238→  product: {
+   239→    id: string
+   240→    name: string
+   241→    slug: string
+   242→    price: number
+   243→    comparePrice: number | null
+   244→    images: string
+   245→  }
+   246→  variant: {
+   247→    id: string
+   248→    name: string
+   249→    price: number
+   250→    attributes: string
+   251→  } | null
+   252→}
+   253→
+   254→/**
+   255→ * Server-side cart display model returned by the cart API.
+   256→ *
+   257→ * Includes the cart items and any applied coupon with its full details,
+   258→ * enabling the frontend to calculate discounts without additional API calls.
+   259→ *
+   260→ * @property id - The cart's unique identifier
+   261→ * @property items - Array of cart items with embedded product/variant data
+   262→ * @property coupon - The currently applied coupon, or null if none is applied.
+   263→ *   Contains all fields needed for discount calculation on the frontend
+   264→ */
+   265→export interface CartDisplay {
+   266→  id: string
+   267→  items: CartItemDisplay[]
+   268→  coupon: {
+   269→    id: string
+   270→    code: string
+   271→    type: string
+   272→    value: number
+   273→    minPurchase: number
+   274→    maxDiscount: number | null
+   275→  } | null
+   276→}
+   277→
+   278→// ============================================================================
+   279→// Order
+   280→// ============================================================================
+   281→
+   282→/**
+   283→ * Full order display model with items, totals, and status timeline.
+   284→ *
+   285→ * Used on the order detail page and in order listing cards. All monetary
+   286→ * values are in the store's base currency.
+   287→ *
+   288→ * @property id - Unique order identifier
+   289→ * @property orderNumber - Human-facing order reference number (e.g., "SF-2024-00123")
+   290→ * @property status - Current order status (e.g., "pending", "processing", "shipped", "delivered")
+   291→ * @property subtotal - Sum of item prices before tax, shipping, and discounts
+   292→ * @property taxAmount - Total tax applied to the order
+   293→ * @property shippingAmount - Shipping cost
+   294→ * @property discountAmount - Total discount from applied coupons
+   295→ * @property totalAmount - Final amount charged to the customer (subtotal + tax + shipping - discount)
+   296→ * @property shippingMethod - Name of the selected shipping method; null if not yet chosen
+   297→ * @property trackingNumber - Carrier tracking number; null until the order is shipped
+   298→ * @property createdAt - ISO 8601 timestamp of when the order was placed
+   299→ * @property items - Array of ordered items with pricing at time of purchase
+   300→ * @property timeline - Ordered list of status change events for the order timeline UI
+   301→ */
+   302→export interface OrderDisplay {
+   303→  id: string
+   304→  orderNumber: string
+   305→  status: string
+   306→  subtotal: number
+   307→  taxAmount: number
+   308→  shippingAmount: number
+   309→  discountAmount: number
+   310→  totalAmount: number
+   311→  shippingMethod: string | null
+   312→  trackingNumber: string | null
+   313→  createdAt: string
+   314→  items: OrderItemDisplay[]
+   315→  timeline: OrderTimelineItem[]
+   316→}
+   317→
+   318→/**
+   319→ * A single line item within an order.
+   320→ *
+   321→ * Captures the product details at the time of purchase (not the current
+   322→ * product state), ensuring historical accuracy even if the product's
+   323→ * price or name changes later.
+   324→ *
+   325→ * @property id - Unique order item identifier
+   326→ * @property productId - Reference to the original product
+   327→ * @property productName - Product name at time of purchase
+   328→ * @property variantName - Variant name at time of purchase; null if no variant
+   329→ * @property sku - SKU at time of purchase
+   330→ * @property price - Unit price at time of purchase
+   331→ * @property quantity - Number of units ordered
+   332→ * @property total - Line total (price × quantity)
+   333→ * @property image - Product image URL at time of purchase; null if no image
+   334→ */
+   335→export interface OrderItemDisplay {
+   336→  id: string
+   337→  productId: string
+   338→  productName: string
+   339→  variantName: string | null
+   340→  sku: string
+   341→  price: number
+   342→  quantity: number
+   343→  total: number
+   344→  image: string | null
+   345→}
+   346→
+   347→/**
+   348→ * A single entry in the order status timeline.
+   349→ *
+   350→ * Represents a state transition in the order's lifecycle (e.g., "placed",
+   351→ * "shipped", "delivered"), displayed chronologically in the order detail UI.
+   352→ *
+   353→ * @property id - Unique timeline entry identifier
+   354→ * @property status - The status the order transitioned to
+   355→ * @property message - Optional human-readable description of the transition;
+   356→ *   null if the status change is self-explanatory
+   357→ * @property createdAt - ISO 8601 timestamp of when this status change occurred
+   358→ */
+   359→export interface OrderTimelineItem {
+   360→  id: string
+   361→  status: string
+   362→  message: string | null
+   363→  createdAt: string
+   364→}
+   365→
+   366→// ============================================================================
+   367→// Review
+   368→// ============================================================================
+   369→
+   370→/**
+   371→ * A customer review for a product.
+   372→ *
+   373→ * Includes the review content, rating, and the reviewer's basic profile.
+   374→ * Reviews are displayed on the product detail page.
+   375→ *
+   376→ * @property id - Unique review identifier
+   377→ * @property rating - Star rating from 1 to 5
+   378→ * @property title - Optional review headline; null if not provided
+   379→ * @property content - Full review body text; null if only a rating was submitted
+   380→ * @property images - JSON-encoded string of review image URLs uploaded by the customer;
+   381→ *   null if no images were attached
+   382→ * @property isVerified - Whether the reviewer actually purchased the product
+   383→ *   (verified purchase badge)
+   384→ * @property helpfulYes - Number of "helpful" votes from other customers
+   385→ * @property helpfulNo - Number of "not helpful" votes from other customers
+   386→ * @property createdAt - ISO 8601 timestamp of when the review was submitted
+   387→ * @property user - Basic profile of the reviewer (name and avatar)
+   388→ */
+   389→export interface ReviewItem {
+   390→  id: string
+   391→  rating: number
+   392→  title: string | null
+   393→  content: string | null
+   394→  images: string | null
+   395→  isVerified: boolean
+   396→  helpfulYes: number
+   397→  helpfulNo: number
+   398→  createdAt: string
+   399→  user: { id: string; name: string | null; image: string | null }
+   400→}
+   401→
+   402→// ============================================================================
+   403→// User
+   404→// ============================================================================
+   405→
+   406→/**
+   407→ * Authenticated user profile data.
+   408→ *
+   409→ * Stored in the auth Zustand store and persisted to localStorage.
+   410→ * Contains only non-sensitive display information — passwords and tokens
+   411→ * are managed server-side via HTTP-only cookies.
+   412→ *
+   413→ * @property id - Unique user identifier
+   414→ * @property email - User's email address (used as login identifier)
+   415→ * @property name - Display name; null if the user hasn't set one
+   416→ * @property image - Profile avatar URL; null if no avatar is set
+   417→ * @property role - User role for authorization (e.g., "customer", "admin")
+   418→ * @property emailVerified - Whether the user has confirmed their email address
+   419→ */
+   420→export interface UserProfile {
+   421→  id: string
+   422→  email: string
+   423→  name: string | null
+   424→  image: string | null
+   425→  role: string
+   426→  emailVerified: boolean
+   427→}
+   428→
+   429→// ============================================================================
+   430→// Category
+   431→// ============================================================================
+   432→
+   433→/**
+   434→ * Product category display model supporting hierarchical (tree) structures.
+   435→ *
+   436→ * Categories can be nested via the `parentId` and `children` fields,
+   437→ * enabling multi-level category navigation (e.g., Clothing → Men → Shirts).
+   438→ *
+   439→ * @property id - Unique category identifier
+   440→ * @property name - Display name of the category
+   441→ * @property slug - URL-friendly identifier for SEO-friendly category URLs
+   442→ * @property description - Category description; null if not provided
+   443→ * @property image - Category banner/thumbnail image URL; null if no image
+   444→ * @property parentId - ID of the parent category; null for top-level categories
+   445→ * @property sortOrder - Numeric sort order for display ordering (lower = first)
+   446→ * @property _count - Optional aggregate count of products in this category;
+   447→ *   prefixed with underscore to indicate it's a computed field, not a DB column
+   448→ * @property children - Optional array of sub-categories for tree rendering;
+   449→ *   only populated when the API is requested with tree inclusion
+   450→ */
+   451→export interface CategoryDisplay {
+   452→  id: string
+   453→  name: string
+   454→  slug: string
+   455→  description: string | null
+   456→  image: string | null
+   457→  parentId: string | null
+   458→  sortOrder: number
+   459→  _count?: { products: number }
+   460→  children?: CategoryDisplay[]
+   461→}
+   462→
+   463→// ============================================================================
+   464→// Brand
+   465→// ============================================================================
+   466→
+   467→/**
+   468→ * Product brand display model.
+   469→ *
+   470→ * Brands are used for brand-based filtering and navigation.
+   471→ *
+   472→ * @property id - Unique brand identifier
+   473→ * @property name - Display name of the brand
+   474→ * @property slug - URL-friendly identifier for SEO-friendly brand URLs
+   475→ * @property logo - Brand logo image URL; null if no logo is uploaded
+   476→ * @property _count - Optional aggregate count of products belonging to this brand
+   477→ */
+   478→export interface BrandDisplay {
+   479→  id: string
+   480→  name: string
+   481→  slug: string
+   482→  logo: string | null
+   483→  _count?: { products: number }
+   484→}
+   485→
+   486→// ============================================================================
+   487→// Filters
+   488→// ============================================================================
+   489→
+   490→/**
+   491→ * Parameters for filtering, sorting, and paginating product listings.
+   492→ *
+   493→ * All fields are optional — when omitted, the API applies sensible defaults.
+   494→ * This type is used both as the query parameter shape for the products API
+   495→ * and as the state shape for the product filter UI components.
+   496→ *
+   497→ * @property search - Free-text search query matching product name/description
+   498→ * @property categoryId - Filter by category ID
+   499→ * @property brandId - Filter by brand ID
+   500→ * @property minPrice - Minimum price filter (inclusive)
+   501→ * @property maxPrice - Maximum price filter (inclusive)
+   502→ * @property minRating - Minimum average rating filter (inclusive, 1–5)
+   503→ * @property sort - Sort strategy for the results:
+   504→ *   - 'price-asc': Lowest price first
+   505→ *   - 'price-desc': Highest price first
+   506→ *   - 'rating': Highest rated first
+   507→ *   - 'newest': Most recently created first
+   508→ *   - 'popular': Most sold first
+   509→ * @property page - Page number for pagination (1-based)
+   510→ * @property limit - Number of items per page
+   511→ * @property isFeatured - When true, filter to only featured products
+   512→ * @property tag - Filter by tag string (exact match)
+   513→ */
+   514→export interface ProductFilters {
+   515→  search?: string
+   516→  categoryId?: string
+   517→  brandId?: string
+   518→  minPrice?: number
+   519→  maxPrice?: number
+   520→  minRating?: number
+   521→  sort?: 'price-asc' | 'price-desc' | 'rating' | 'newest' | 'popular'
+   522→  page?: number
+   523→  limit?: number
+   524→  isFeatured?: boolean
+   525→  tag?: string
+   526→}
+   527→
+   528→// ============================================================================
+   529→// API Response
+   530→// ============================================================================
+   531→
+   532→/**
+   533→ * Standardized API response wrapper.
+   534→ *
+   535→ * All API endpoints return responses in this shape for consistent error
+   536→ * handling and data access across the frontend.
+   537→ *
+   538→ * @typeParam T - The type of the response data payload
+   539→ * @property success - Whether the API request completed successfully
+   540→ * @property data - The response payload; undefined on error or when no data is returned
+   541→ * @property error - Error message when `success` is false; undefined on success
+   542→ * @property message - Optional informational message (e.g., confirmation text)
+   543→ */
+   544→export interface ApiResponse<T> {
+   545→  success: boolean
+   546→  data?: T
+   547→  error?: string
+   548→  message?: string
+   549→}
+   550→
+   551→/**
+   552→ * Paginated API response wrapper with metadata.
+   553→ *
+   554→ * Wraps a page of items with pagination metadata, enabling the frontend
+   555→ * to render page controls and calculate total pages.
+   556→ *
+   557→ * @typeParam T - The type of the items in the paginated result set
+   558→ * @property items - The array of items on the current page
+   559→ * @property total - Total number of items across all pages
+   560→ * @property page - Current page number (1-based)
+   561→ * @property limit - Number of items per page
+   562→ * @property totalPages - Total number of available pages (calculated as ceil(total / limit))
+   563→ */
+   564→export interface PaginatedResponse<T> {
+   565→  items: T[]
+   566→  total: number
+   567→  page: number
+   568→  limit: number
+   569→  totalPages: number
+   570→}
+   571→
+   572→// ============================================================================
+   573→// Admin Stats
+   574→// ============================================================================
+   575→
+   576→/**
+   577→ * Aggregated statistics for the admin dashboard.
+   578→ *
+   579→ * Contains key performance indicators (KPIs), recent activity, and
+   580→ * breakdowns for chart visualizations. All monetary values are in
+   581→ * the store's base currency.
+   582→ *
+   583→ * @property totalRevenue - Total revenue across all orders
+   584→ * @property totalOrders - Total number of orders placed
+   585→ * @property totalCustomers - Total number of registered customers
+   586→ * @property totalProducts - Total number of active products
+   587→ * @property revenueChange - Revenue change percentage vs. previous period (e.g., 12.5 for +12.5%)
+   588→ * @property orderChange - Order count change percentage vs. previous period
+   589→ * @property customerChange - Customer count change percentage vs. previous period
+   590→ * @property recentOrders - Latest orders for the dashboard's recent activity section
+   591→ * @property topProducts - Best-selling products by revenue for the top products chart
+   592→ * @property salesByMonth - Monthly revenue and order counts for the sales trend chart
+   593→ * @property ordersByStatus - Order count breakdown by status for the status distribution chart
+   594→ */
+   595→export interface AdminStats {
+   596→  totalRevenue: number
+   597→  totalOrders: number
+   598→  totalCustomers: number
+   599→  totalProducts: number
+   600→  revenueChange: number
+   601→  orderChange: number
+   602→  customerChange: number
+   603→  recentOrders: OrderDisplay[]
+   604→  topProducts: { product: { id: string; name: string; price: number; images: string }; totalSold: number; revenue: number }[]
+   605→  salesByMonth: { month: string; revenue: number; orders: number }[]
+   606→  ordersByStatus: { status: string; count: number }[]
+   607→}
+   608→
+   609→// ============================================================================
+   610→// Banner
+   611→// ============================================================================
+   612→
+   613→/**
+   614→ * Promotional banner for the homepage or other pages.
+   615→ *
+   616→ * Banners are managed by admins and displayed in designated positions
+   617→ * on the storefront (e.g., hero slider, sidebar promotions).
+   618→ *
+   619→ * @property id - Unique banner identifier
+   620→ * @property title - Banner headline text
+   621→ * @property subtitle - Secondary text below the title; null if not provided
+   622→ * @property image - Banner background/image URL (required for display)
+   623→ * @property link - URL to navigate to when the banner is clicked; null if non-interactive
+   624→ * @property buttonText - Call-to-action button text; null if no button should be shown
+   625→ * @property position - Where the banner is displayed (e.g., "hero", "sidebar", "footer")
+   626→ * @property sortOrder - Numeric sort order for display ordering within the same position
+   627→ */
+   628→export interface BannerDisplay {
+   629→  id: string
+   630→  title: string
+   631→  subtitle: string | null
+   632→  image: string
+   633→  link: string | null
+   634→  buttonText: string | null
+   635→  position: string
+   636→  sortOrder: number
+   637→}
+   638→
+   639→// ============================================================================
+   640→// Coupon
+   641→// ============================================================================
+   642→
+   643→/**
+   644→ * Discount coupon definition.
+   645→ *
+   646→ * Coupons can be either percentage-based or fixed-amount, with optional
+   647→ * constraints on minimum purchase and maximum discount.
+   648→ *
+   649→ * @property id - Unique coupon identifier
+   650→ * @property code - The coupon code string that customers enter (e.g., "SAVE20")
+   651→ * @property type - Discount type: "percentage" for % off, "fixed" for flat amount off
+   652→ * @property value - The discount value (percentage as 0–100, or fixed amount in currency)
+   653→ * @property minPurchase - Minimum order subtotal required to apply this coupon
+   654→ * @property maxDiscount - Maximum discount amount (caps percentage discounts);
+   655→ *   null means no cap
+   656→ * @property usageLimit - Total number of times this coupon can be used across all users;
+   657→ *   null means unlimited
+   658→ * @property usedCount - Number of times this coupon has been used so far
+   659→ * @property perUserLimit - Maximum times a single user can apply this coupon;
+   660→ *   null means unlimited per user
+   661→ * @property isActive - Whether the coupon is currently available for use
+   662→ * @property startsAt - ISO 8601 timestamp when the coupon becomes valid; null means immediately
+   663→ * @property expiresAt - ISO 8601 timestamp when the coupon expires; null means never expires
+   664→ */
+   665→export interface CouponDisplay {
+   666→  id: string
+   667→  code: string
+   668→  type: string
+   669→  value: number
+   670→  minPurchase: number
+   671→  maxDiscount: number | null
+   672→  usageLimit: number | null
+   673→  usedCount: number
+   674→  perUserLimit: number | null
+   675→  isActive: boolean
+   676→  startsAt: string | null
+   677→  expiresAt: string | null
+   678→}
+   679→
+   680→// ============================================================================
+   681→// Address
+   682→// ============================================================================
+   683→
+   684→/**
+   685→ * Shipping or billing address.
+   686→ *
+   687→ * Used during checkout and stored in the user's address book for reuse.
+   688→ * Addresses follow a standard international format compatible with most
+   689→ * shipping carriers and address validation services.
+   690→ *
+   691→ * @property id - Unique address identifier
+   692→ * @property label - User-friendly label for the address (e.g., "Home", "Office");
+   693→ *   null if not labeled
+   694→ * @property firstName - Recipient's first name
+   695→ * @property lastName - Recipient's last name
+   696→ * @property street1 - Primary street address line (e.g., "123 Main St")
+   697→ * @property street2 - Secondary address line (e.g., "Apt 4B"); null if not needed
+   698→ * @property city - City/locality name
+   699→ * @property state - State/province/region name or code
+   700→ * @property postalCode - ZIP/postal code
+   701→ * @property country - Country name or ISO code
+   702→ * @property phone - Contact phone number for delivery; null if not provided
+   703→ * @property isDefault - Whether this is the user's default address (pre-selected at checkout)
+   704→ */
+   705→export interface AddressDisplay {
+   706→  id: string
+   707→  label: string | null
+   708→  firstName: string
+   709→  lastName: string
+   710→  street1: string
+   711→  street2: string | null
+   712→  city: string
+   713→  state: string
+   714→  postalCode: string
+   715→  country: string
+   716→  phone: string | null
+   717→  isDefault: boolean
+   718→}
+   719→

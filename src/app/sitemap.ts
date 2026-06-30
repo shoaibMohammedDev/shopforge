@@ -4,7 +4,7 @@
 // ============================================================================
 
 import { MetadataRoute } from 'next'
-import { db } from '@/lib/db'
+import { db } from "@/infrastructure/database"
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://shopforge.dev'

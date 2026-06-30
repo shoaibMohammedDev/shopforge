@@ -13,7 +13,7 @@
  */
 
 import { NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db } from "@/infrastructure/database"
 
 /**
  * Handles PUT requests to update a user's profile.

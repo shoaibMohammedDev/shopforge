@@ -16,7 +16,7 @@
  */
 
 import { NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db } from "@/infrastructure/database"
 
 /**
  * Handles GET requests to retrieve a user's addresses.

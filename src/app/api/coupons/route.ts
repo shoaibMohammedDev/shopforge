@@ -14,9 +14,9 @@
  */
 
 import { NextResponse } from 'next/server'
-import { couponService } from '@/features/coupons/services/coupon.service'
-import { couponQuerySchema } from '@/lib/validators'
-import { handleApiError, ValidationError } from '@/lib/errors'
+import { couponService } from "@/modules/coupons/services/coupon.service"
+import { couponQuerySchema } from "@/shared/validators"
+import { handleApiError, ValidationError } from "@/shared/lib/errors"
 
 /**
  * Handles GET requests to validate a coupon code.

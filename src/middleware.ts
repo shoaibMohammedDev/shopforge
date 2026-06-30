@@ -5,8 +5,8 @@
 
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { validateCsrfFromRequest } from '@/lib/csrf'
-import { appConfig } from '@/lib/config'
+import { validateCsrfFromRequest } from "@/shared/lib/csrf"
+import { appConfig } from "@/shared/lib/config"
 
 // ---- Rate Limiting ----
 interface RateLimitEntry {

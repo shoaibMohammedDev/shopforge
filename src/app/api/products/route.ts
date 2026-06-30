@@ -12,9 +12,9 @@
  */
 
 import { NextResponse } from 'next/server'
-import { productService } from '@/features/products/services/product.service'
-import { productQuerySchema } from '@/lib/validators'
-import { handleApiError, ValidationError } from '@/lib/errors'
+import { productService } from "@/modules/products/services/product.service"
+import { productQuerySchema } from "@/shared/validators"
+import { handleApiError, ValidationError } from "@/shared/lib/errors"
 
 /**
  * Handles GET requests to list and filter products.

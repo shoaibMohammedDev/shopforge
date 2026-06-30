@@ -11,7 +11,7 @@
  */
 
 import { NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { db } from "@/infrastructure/database"
 
 /**
  * Handles GET requests to retrieve a single product's full details.

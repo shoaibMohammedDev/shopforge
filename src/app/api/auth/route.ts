@@ -13,10 +13,10 @@
  */
 
 import { NextResponse } from 'next/server'
-import { authService } from '@/features/auth/services/auth.service'
-import { authSchema } from '@/lib/validators'
-import { handleApiError, ValidationError } from '@/lib/errors'
-import { apiLogger } from '@/lib/logger'
+import { authService } from "@/modules/auth/services/auth.service"
+import { authSchema } from "@/shared/validators"
+import { handleApiError, ValidationError } from "@/shared/lib/errors"
+import { apiLogger } from "@/shared/lib/logger"
 
 /**
  * Handles POST requests for authentication operations.

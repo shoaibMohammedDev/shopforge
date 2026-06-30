@@ -11,8 +11,8 @@
  */
 
 import { NextResponse } from 'next/server'
-import { db } from '@/lib/db'
-import { handleApiError } from '@/lib/errors'
+import { db } from "@/infrastructure/database"
+import { handleApiError } from "@/shared/lib/errors"
 
 /**
  * Handles GET requests to retrieve the category tree.

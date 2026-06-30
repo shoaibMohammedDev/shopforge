@@ -16,7 +16,7 @@
  * @see https://nextjs.org/docs/app/api-reference/file-conventions/loading
  */
 
-import { Skeleton } from '@/components/ui/skeleton'
+import { Skeleton } from "@/shared/components/ui/skeleton"
 
 /**
  * Loading — the suspense fallback component shown while the page is loading.

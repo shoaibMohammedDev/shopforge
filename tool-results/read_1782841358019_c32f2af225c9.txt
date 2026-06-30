@@ -1,0 +1,1128 @@
+     1→/**
+     2→ * @file home-page.tsx
+     3→ * @description Homepage component for the ShopForge e-commerce application.
+     4→ * This is the landing page that users see when they first visit the site.
+     5→ * It features a hero carousel banner, flash sale countdown, category grid,
+     6→ * featured products, brand showcase, newsletter signup, and stats bar.
+     7→ *
+     8→ * @key_features
+     9→ * - Auto-rotating hero carousel with promotional banners
+    10→ * - Flash sale section with real-time countdown timer
+    11→ * - Category browsing grid with dynamic icons
+    12→ * - Featured products display with cart/wishlist integration
+    13→ * - Brand showcase with horizontal scroll
+    14→ * - Newsletter subscription form with validation
+    15→ * - Trust stats bar (products count, customers, uptime, support)
+    16→ */
+    17→
+    18→'use client'
+    19→
+    20→import { useState, useEffect, useCallback, useMemo } from 'react'
+    21→import { useQuery } from '@tanstack/react-query'
+    22→import { motion } from 'framer-motion'
+    23→import {
+    24→  Smartphone,
+    25→  Laptop,
+    26→  Headphones,
+    27→  Shirt,
+    28→  Home as HomeIcon,
+    29→  Dumbbell,
+    30→  BookOpen,
+    31→  Sparkles,
+    32→  Heart,
+    33→  ShoppingCart,
+    34→  Star,
+    35→  ChevronRight,
+    36→  Zap,
+    37→  Timer,
+    38→  Mail,
+    39→  Package,
+    40→  Users,
+    41→  ShieldCheck,
+    42→  Headset,
+    43→  ArrowRight,
+    44→} from 'lucide-react'
+    45→import { useRouterStore } from '@/stores/router-store'
+    46→import { useCartStore } from '@/stores/cart-store'
+    47→import { useWishlistStore } from '@/stores/wishlist-store'
+    48→import { api } from '@/lib/api-client'
+    49→import type {
+    50→  ProductListItem,
+    51→  CategoryDisplay,
+    52→  BrandDisplay,
+    53→  PaginatedResponse,
+    54→} from '@/types'
+    55→
+    56→import { Button } from '@/components/ui/button'
+    57→import { Card, CardContent } from '@/components/ui/card'
+    58→import { Badge } from '@/components/ui/badge'
+    59→import { Skeleton } from '@/components/ui/skeleton'
+    60→import { Input } from '@/components/ui/input'
+    61→import {
+    62→  Carousel,
+    63→  CarouselContent,
+    64→  CarouselItem,
+    65→  CarouselPrevious,
+    66→  CarouselNext,
+    67→  type CarouselApi,
+    68→} from '@/components/ui/carousel'
+    69→
+    70→// ============================================================================
+    71→// Star Rating Component
+    72→// ============================================================================
+    73→
+    74→/**
+    75→ * StarRating - Renders a row of 1–5 star icons based on a numeric rating value.
+    76→ *
+    77→ * @param {number} rating - The average rating value (e.g., 4.3). Rounded to the nearest integer for fill state.
+    78→ * @param {number} [count] - Optional review count displayed in parentheses next to the stars.
+    79→ * @returns {JSX.Element} A flex row of filled/empty star icons with an optional count label.
+    80→ */
+    81→function StarRating({ rating, count }: { rating: number; count?: number }) {
+    82→  return (
+    83→    <div className="flex items-center gap-1">
+    84→      {/* Render 5 stars; fill stars up to the rounded rating value */}
+    85→      <div className="flex">
+    86→        {[1, 2, 3, 4, 5].map((star) => (
+    87→          <Star
+    88→            key={star}
+    89→            className={`h-3.5 w-3.5 ${
+    90→              star <= Math.round(rating)
+    91→                ? 'text-amber-400 fill-amber-400'
+    92→                : 'text-gray-300'
+    93→            }`}
+    94→          />
+    95→        ))}
+    96→      </div>
+    97→      {/* Show review count if provided */}
+    98→      {count !== undefined && (
+    99→        <span className="text-xs text-muted-foreground">({count})</span>
+   100→      )}
+   101→    </div>
+   102→  )
+   103→}
+   104→
+   105→// ============================================================================
+   106→// Animation Variants
+   107→// ============================================================================
+   108→
+   109→/**
+   110→ * Framer Motion animation variants used throughout the homepage.
+   111→ * - fadeInUp: Elements fade in and slide up from below
+   112→ * - fadeIn: Simple opacity fade-in
+   113→ * - staggerContainer: Parent container that staggers children animations
+   114→ * - staggerItem: Individual child item animation for staggered lists
+   115→ */
+   116→const fadeInUp = {
+   117→  hidden: { opacity: 0, y: 24 },
+   118→  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: 'easeOut' as const } },
+   119→}
+   120→
+   121→const fadeIn = {
+   122→  hidden: { opacity: 0 },
+   123→  visible: { opacity: 1, transition: { duration: 0.4, ease: 'easeOut' as const } },
+   124→}
+   125→
+   126→const staggerContainer = {
+   127→  hidden: { opacity: 0 },
+   128→  visible: {
+   129→    opacity: 1,
+   130→    transition: { staggerChildren: 0.08, delayChildren: 0.1 },
+   131→  },
+   132→}
+   133→
+   134→const staggerItem = {
+   135→  hidden: { opacity: 0, y: 16 },
+   136→  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' as const } },
+   137→}
+   138→
+   139→// ============================================================================
+   140→// Hero Banner Data
+   141→// ============================================================================
+   142→
+   143→/**
+   144→ * Static data for the hero carousel slides.
+   145→ * Each slide contains a title, subtitle, CTA button text, gradient colors,
+   146→ * and the route to navigate to when the CTA is clicked.
+   147→ */
+   148→const heroSlides = [
+   149→  {
+   150→    title: 'Summer Collection 2025',
+   151→    subtitle: 'Discover the latest trends with up to 40% off on premium styles',
+   152→    cta: 'Shop Now',
+   153→    gradient: 'from-emerald-600 via-teal-500 to-emerald-400',
+   154→    accent: 'text-emerald-50',
+   155→    route: 'products' as const,
+   156→  },
+   157→  {
+   158→    title: 'Tech Essentials Sale',
+   159→    subtitle: 'Top-rated gadgets and electronics at unbeatable prices',
+   160→    cta: 'Explore Deals',
+   161→    gradient: 'from-amber-500 via-orange-500 to-amber-400',
+   162→    accent: 'text-amber-50',
+   163→    route: 'products' as const,
+   164→  },
+   165→  {
+   166→    title: 'New Arrivals',
+   167→    subtitle: 'Be the first to shop our freshest picks and exclusive items',
+   168→    cta: 'View Collection',
+   169→    gradient: 'from-violet-600 via-purple-500 to-violet-400',
+   170→    accent: 'text-violet-50',
+   171→    route: 'products' as const,
+   172→  },
+   173→]
+   174→
+   175→// ============================================================================
+   176→// Category Icon Map
+   177→// ============================================================================
+   178→
+   179→/**
+   180→ * Maps category slug keywords to their corresponding icon, text color, and background color.
+   181→ * Used to render dynamic category cards with appropriate visual styling.
+   182→ * The slug is matched via substring inclusion (e.g., "electronics" matches "electronics-accessories").
+   183→ */
+   184→const categoryIconMap: Record<string, { icon: React.ElementType; color: string; bg: string }> = {
+   185→  electronics: { icon: Smartphone, color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30' },
+   186→  computers: { icon: Laptop, color: 'text-indigo-600', bg: 'bg-indigo-100 dark:bg-indigo-900/30' },
+   187→  audio: { icon: Headphones, color: 'text-purple-600', bg: 'bg-purple-100 dark:bg-purple-900/30' },
+   188→  clothing: { icon: Shirt, color: 'text-pink-600', bg: 'bg-pink-100 dark:bg-pink-900/30' },
+   189→  home: { icon: HomeIcon, color: 'text-amber-600', bg: 'bg-amber-100 dark:bg-amber-900/30' },
+   190→  sports: { icon: Dumbbell, color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30' },
+   191→  books: { icon: BookOpen, color: 'text-teal-600', bg: 'bg-teal-100 dark:bg-teal-900/30' },
+   192→  default: { icon: Sparkles, color: 'text-rose-600', bg: 'bg-rose-100 dark:bg-rose-900/30' },
+   193→}
+   194→
+   195→/**
+   196→ * Resolves the visual style (icon + colors) for a given category slug.
+   197→ * Performs case-insensitive substring matching against the categoryIconMap keys.
+   198→ *
+   199→ * @param {string} slug - The category slug to look up (e.g., "electronics-accessories").
+   200→ * @returns The matching icon, text color, and background color; falls back to the default style.
+   201→ */
+   202→function getCategoryStyle(slug: string) {
+   203→  const normalized = slug.toLowerCase()
+   204→  for (const [key, style] of Object.entries(categoryIconMap)) {
+   205→    if (normalized.includes(key)) return style
+   206→  }
+   207→  return categoryIconMap.default
+   208→}
+   209→
+   210→// ============================================================================
+   211→// Stats Data
+   212→// ============================================================================
+   213→
+   214→/**
+   215→ * Static trust/credibility stats displayed at the bottom of the homepage.
+   216→ * Each entry has an icon, a label string, and a Tailwind text color class.
+   217→ */
+   218→const stats = [
+   219→  { icon: Package, label: '10K+ Products', color: 'text-emerald-600' },
+   220→  { icon: Users, label: '50K+ Customers', color: 'text-blue-600' },
+   221→  { icon: ShieldCheck, label: '99.9% Uptime', color: 'text-amber-600' },
+   222→  { icon: Headset, label: '24/7 Support', color: 'text-violet-600' },
+   223→]
+   224→
+   225→// ============================================================================
+   226→// Helper: Parse product images
+   227→// ============================================================================
+   228→
+   229→/**
+   230→ * Parses a JSON string of image URLs into a string array.
+   231→ * Safely handles malformed JSON by returning an empty array on parse failure.
+   232→ *
+   233→ * @param {string} imagesStr - JSON-encoded string of image URL array.
+   234→ * @returns {string[]} Array of image URL strings, or empty array if parsing fails.
+   235→ */
+   236→function parseImages(imagesStr: string): string[] {
+   237→  try {
+   238→    const parsed = JSON.parse(imagesStr)
+   239→    return Array.isArray(parsed) ? parsed : []
+   240→  } catch {
+   241→    return []
+   242→  }
+   243→}
+   244→
+   245→/**
+   246→ * Formats a numeric price value into a USD currency string.
+   247→ * Uses the Intl.NumberFormat API for locale-aware formatting.
+   248→ *
+   249→ * @param {number} price - The price value to format.
+   250→ * @returns {string} Formatted price string (e.g., "$29.99").
+   251→ */
+   252→function formatPrice(price: number): string {
+   253→  return new Intl.NumberFormat('en-US', {
+   254→    style: 'currency',
+   255→    currency: 'USD',
+   256→  }).format(price)
+   257→}
+   258→
+   259→// ============================================================================
+   260→// Reusable Product Card Component
+   261→// ============================================================================
+   262→
+   263→/**
+   264→ * ProductCard - A reusable card component for displaying a product in grid layouts.
+   265→ *
+   266→ * Renders the product image (or a gradient placeholder), discount/flash sale badges,
+   267→ * a wishlist toggle button, brand name, product name, star rating, price with
+   268→ * optional strikethrough for the compare-at price, and an "Add to Cart" button.
+   269→ *
+   270→ * Clicking the card navigates to the product detail page.
+   271→ *
+   272→ * @param {Object} props
+   273→ * @param {ProductListItem} props.product - The product data to display.
+   274→ *
+   275→ * @state
+   276→ * - Uses cart store (addItem) for adding items to cart
+   277→ * - Uses wishlist store (toggleItem, isInWishlist) for wishlist toggling
+   278→ * - Uses router store (navigate) for navigation to product detail
+   279→ */
+   280→function ProductCard({ product }: { product: ProductListItem }) {
+   281→  const navigate = useRouterStore((s) => s.navigate)
+   282→  const addItem = useCartStore((s) => s.addItem)
+   283→  const toggleItem = useWishlistStore((s) => s.toggleItem)
+   284→  const isInWishlist = useWishlistStore((s) => s.isInWishlist)
+   285→  const wishlisted = isInWishlist(product.id)
+   286→
+   287→  // Parse the product images JSON string into an array of URLs
+   288→  const images = parseImages(product.images)
+   289→  // Determine if the product has an active discount (comparePrice > selling price)
+   290→  const hasDiscount = product.comparePrice && product.comparePrice > product.price
+   291→  // Calculate the discount percentage for the badge display
+   292→  const discountPercent = hasDiscount
+   293→    ? Math.round(((product.comparePrice! - product.price) / product.comparePrice!) * 100)
+   294→    : 0
+   295→
+   296→  // Use flash sale price if the product is part of an active flash sale; otherwise use regular price
+   297→  const displayPrice =
+   298→    product.flashSaleProduct?.[0]?.salePrice ?? product.price
+   299→
+   300→  /**
+   301→   * Handles adding the product to the cart.
+   302→   * Stops event propagation to prevent triggering the card's navigation onClick.
+   303→   * Uses the flash sale price if applicable.
+   304→   */
+   305→  const handleAddToCart = useCallback(
+   306→    (e: React.MouseEvent) => {
+   307→      e.stopPropagation()
+   308→      addItem({
+   309→        productId: product.id,
+   310→        name: product.name,
+   311→        slug: product.slug,
+   312→        price: displayPrice,
+   313→        comparePrice: product.comparePrice ?? undefined,
+   314→        image: images[0] ?? '',
+   315→        quantity: 1,
+   316→        sku: product.slug,
+   317→      })
+   318→    },
+   319→    [addItem, product, images, displayPrice]
+   320→  )
+   321→
+   322→  /**
+   323→   * Handles toggling the product in the wishlist.
+   324→   * Stops event propagation to prevent navigation.
+   325→   */
+   326→  const handleWishlist = useCallback(
+   327→    (e: React.MouseEvent) => {
+   328→      e.stopPropagation()
+   329→      toggleItem(product.id)
+   330→    },
+   331→    [toggleItem, product.id]
+   332→  )
+   333→
+   334→  /**
+   335→   * Navigates to the product detail page when the card is clicked.
+   336→   */
+   337→  const handleNavigate = useCallback(() => {
+   338→    navigate('product-detail', { id: product.id, slug: product.slug })
+   339→  }, [navigate, product.id, product.slug])
+   340→
+   341→  return (
+   342→    <motion.div variants={staggerItem} className="group">
+   343→      <Card
+   344→        className="overflow-hidden cursor-pointer transition-shadow hover:shadow-lg py-0 gap-0"
+   345→        onClick={handleNavigate}
+   346→      >
+   347→        {/* Image / Gradient placeholder */}
+   348→        <div className="relative aspect-square overflow-hidden bg-muted">
+   349→          {/* Render the product image if available, otherwise show a gradient with the first letter */}
+   350→          {images[0] ? (
+   351→            <img
+   352→              src={images[0]}
+   353→              alt={product.name}
+   354→              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+   355→            />
+   356→          ) : (
+   357→            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-slate-200 to-slate-300 dark:from-slate-700 dark:to-slate-800">
+   358→              <span className="text-4xl font-bold text-slate-400 dark:text-slate-500">
+   359→                {product.name.charAt(0).toUpperCase()}
+   360→              </span>
+   361→            </div>
+   362→          )}
+   363→
+   364→          {/* Discount badge - shows percentage off when compare price exists */}
+   365→          {discountPercent > 0 && (
+   366→            <Badge className="absolute top-2 left-2 bg-red-500 text-white hover:bg-red-600 border-0 text-xs">
+   367→              -{discountPercent}%
+   368→            </Badge>
+   369→          )}
+   370→
+   371→          {/* Flash sale badge - overrides discount badge position when flash sale is active */}
+   372→          {product.flashSaleProduct?.[0] && product.flashSaleProduct[0].flashSale?.isActive && (
+   373→            <Badge className="absolute top-2 left-2 bg-orange-500 text-white hover:bg-orange-600 border-0 text-xs gap-1">
+   374→              <Zap className="size-3" /> Flash
+   375→            </Badge>
+   376→          )}
+   377→
+   378→          {/* Wishlist button - toggles heart icon fill state on click */}
+   379→          <Button
+   380→            variant="ghost"
+   381→            size="icon"
+   382→            className="absolute top-2 right-2 size-8 rounded-full bg-white/80 dark:bg-black/50 hover:bg-white dark:hover:bg-black/70"
+   383→            onClick={handleWishlist}
+   384→            aria-label={wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
+   385→          >
+   386→            <Heart
+   387→              className={`size-4 ${
+   388→                wishlisted
+   389→                  ? 'fill-red-500 text-red-500'
+   390→                  : 'text-slate-600 dark:text-slate-300'
+   391→              }`}
+   392→            />
+   393→          </Button>
+   394→        </div>
+   395→
+   396→        <CardContent className="p-4 space-y-2">
+   397→          {/* Brand name - shown if the product has an associated brand */}
+   398→          {product.brand && (
+   399→            <p className="text-xs text-muted-foreground truncate">
+   400→              {product.brand.name}
+   401→            </p>
+   402→          )}
+   403→
+   404→          {/* Product name - truncated to 2 lines with minimum height for consistent card sizing */}
+   405→          <h3 className="font-medium text-sm line-clamp-2 leading-tight min-h-[2.5rem]">
+   406→            {product.name}
+   407→          </h3>
+   408→
+   409→          {/* Star rating with review count */}
+   410→          <StarRating rating={product.avgRating} count={product.reviewCount} />
+   411→
+   412→          {/* Price display - shows sale price in red for flash sale items, with optional strikethrough compare price */}
+   413→          <div className="flex items-baseline gap-2">
+   414→            <span
+   415→              className={`font-semibold ${
+   416→                product.flashSaleProduct?.[0] && product.flashSaleProduct[0].flashSale?.isActive ? 'text-red-600 dark:text-red-400' : ''
+   417→              }`}
+   418→            >
+   419→              {formatPrice(displayPrice)}
+   420→            </span>
+   421→            {hasDiscount && (
+   422→              <span className="text-sm text-muted-foreground line-through">
+   423→                {formatPrice(product.comparePrice!)}
+   424→              </span>
+   425→            )}
+   426→          </div>
+   427→
+   428→          {/* Add to cart button - uses flash sale price when applicable */}
+   429→          <Button
+   430→            size="sm"
+   431→            className="w-full mt-1 gap-2"
+   432→            onClick={handleAddToCart}
+   433→          >
+   434→            <ShoppingCart className="size-4" />
+   435→            Add to Cart
+   436→          </Button>
+   437→        </CardContent>
+   438→      </Card>
+   439→    </motion.div>
+   440→  )
+   441→}
+   442→
+   443→// ============================================================================
+   444→// Product Card Skeleton
+   445→// ============================================================================
+   446→
+   447→/**
+   448→ * ProductCardSkeleton - A loading placeholder that mimics the ProductCard layout.
+   449→ * Used while product data is being fetched to prevent layout shift.
+   450→ *
+   451→ * @returns {JSX.Element} A skeleton card with placeholder shapes matching the ProductCard structure.
+   452→ */
+   453→function ProductCardSkeleton() {
+   454→  return (
+   455→    <Card className="overflow-hidden py-0 gap-0">
+   456→      <Skeleton className="aspect-square w-full" />
+   457→      <div className="p-4 space-y-3">
+   458→        {/* Brand placeholder */}
+   459→        <Skeleton className="h-3 w-16" />
+   460→        {/* Name placeholder (2 lines) */}
+   461→        <Skeleton className="h-4 w-full" />
+   462→        <Skeleton className="h-4 w-2/3" />
+   463→        {/* Stars placeholder */}
+   464→        <div className="flex gap-1">
+   465→          {Array.from({ length: 5 }).map((_, i) => (
+   466→            <Skeleton key={i} className="size-3.5 rounded-full" />
+   467→          ))}
+   468→        </div>
+   469→        {/* Price placeholder */}
+   470→        <div className="flex items-baseline gap-2">
+   471→          <Skeleton className="h-5 w-20" />
+   472→          <Skeleton className="h-4 w-16" />
+   473→        </div>
+   474→        {/* Button placeholder */}
+   475→        <Skeleton className="h-8 w-full" />
+   476→      </div>
+   477→    </Card>
+   478→  )
+   479→}
+   480→
+   481→// ============================================================================
+   482→// Countdown Timer Hook
+   483→// ============================================================================
+   484→
+   485→/**
+   486→ * useCountdown - A custom hook that computes the time remaining until a target date.
+   487→ * Updates every second to provide a live countdown.
+   488→ *
+   489→ * @param {Date} targetDate - The future date/time to count down to.
+   490→ * @returns {{ hours: number, minutes: number, seconds: number }} The remaining time broken into hours, minutes, and seconds.
+   491→ *
+   492→ * @example
+   493→ * const countdown = useCountdown(new Date('2025-12-31T00:00:00'))
+   494→ * // => { hours: 120, minutes: 45, seconds: 30 }
+   495→ */
+   496→function useCountdown(targetDate: Date) {
+   497→  const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 })
+   498→
+   499→  useEffect(() => {
+   500→    /** Calculates the remaining time and updates state. Returns all zeros if the target has passed. */
+   501→    function calculate() {
+   502→      const now = new Date().getTime()
+   503→      const distance = targetDate.getTime() - now
+   504→      if (distance <= 0) {
+   505→        setTimeLeft({ hours: 0, minutes: 0, seconds: 0 })
+   506→        return
+   507→      }
+   508→      setTimeLeft({
+   509→        hours: Math.floor(distance / (1000 * 60 * 60)),
+   510→        minutes: Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60)),
+   511→        seconds: Math.floor((distance % (1000 * 60)) / 1000),
+   512→      })
+   513→    }
+   514→    calculate()
+   515→    // Update the countdown every second
+   516→    const interval = setInterval(calculate, 1000)
+   517→    return () => clearInterval(interval)
+   518→  }, [targetDate])
+   519→
+   520→  return timeLeft
+   521→}
+   522→
+   523→// ============================================================================
+   524→// Main HomePage Component
+   525→// ============================================================================
+   526→
+   527→/**
+   528→ * HomePage - The main landing page component for the ShopForge e-commerce platform.
+   529→ *
+   530→ * Renders a comprehensive storefront homepage with the following sections:
+   531→ * 1. Hero Banner Carousel - Auto-rotating promotional slides
+   532→ * 2. Flash Sale Countdown - Time-limited deals with live countdown
+   533→ * 3. Category Grid - Browsable product categories with icons
+   534→ * 4. Featured Products - Curated product selection
+   535→ * 5. Brand Showcase - Horizontal scrolling brand logos/names
+   536→ * 6. Newsletter CTA - Email subscription form
+   537→ * 7. Stats Bar - Trust indicators
+   538→ *
+   539→ * @state
+   540→ * - carouselApi: Controls the hero carousel instance for programmatic navigation
+   541→ * - currentSlide: Tracks the currently visible hero slide index for dot indicators
+   542→ * - email: Controlled input for the newsletter subscription form
+   543→ * - subscribed: Temporary boolean to show success feedback after subscribing
+   544→ *
+   545→ * @data_fetching
+   546→ * - Featured products (isFeatured: true, limit: 4)
+   547→ * - All products (filtered client-side for flash sale items)
+   548→ * - Categories for the category grid
+   549→ * - Brands for the brand showcase
+   550→ */
+   551→export default function HomePage() {
+   552→  const navigate = useRouterStore((s) => s.navigate)
+   553→  const [carouselApi, setCarouselApi] = useState<CarouselApi>()
+   554→  const [currentSlide, setCurrentSlide] = useState(0)
+   555→  const [email, setEmail] = useState('')
+   556→  const [subscribed, setSubscribed] = useState(false)
+   557→
+   558→  // Flash sale countdown: ends at 8PM today, or 8PM tomorrow if already past 8PM
+   559→  const flashSaleEnd = useMemo(() => {
+   560→    const now = new Date()
+   561→    const end = new Date(now)
+   562→    end.setHours(20, 0, 0, 0)
+   563→    if (end.getTime() <= now.getTime()) {
+   564→      end.setDate(end.getDate() + 1)
+   565→    }
+   566→    return end
+   567→  }, [])
+   568→  const countdown = useCountdown(flashSaleEnd)
+   569→
+   570→  // Carousel autoplay: advance to the next slide every 5 seconds
+   571→  useEffect(() => {
+   572→    if (!carouselApi) return
+   573→    const interval = setInterval(() => {
+   574→      carouselApi.scrollNext()
+   575→    }, 5000)
+   576→    return () => clearInterval(interval)
+   577→  }, [carouselApi])
+   578→
+   579→  // Track current slide index for dot indicator highlighting
+   580→  useEffect(() => {
+   581→    if (!carouselApi) return
+   582→    const onSelect = () => {
+   583→      setCurrentSlide(carouselApi.selectedScrollSnap())
+   584→    }
+   585→    carouselApi.on('select', onSelect)
+   586→    return () => {
+   587→      carouselApi.off('select', onSelect)
+   588→    }
+   589→  }, [carouselApi])
+   590→
+   591→  // ---- Data Fetching ----
+   592→
+   593→  /** Fetch featured products (marked with isFeatured flag, limited to 4) */
+   594→  const { data: featuredData, isLoading: featuredLoading } = useQuery({
+   595→    queryKey: ['products', 'featured', { isFeatured: true, limit: 4 }],
+   596→    queryFn: async () => {
+   597→      const res = await api.get<PaginatedResponse<ProductListItem>>('/products', {
+   598→        isFeatured: true,
+   599→        limit: 4,
+   600→      })
+   601→      return res.success ? res.data : null
+   602→    },
+   603→  })
+   604→
+   605→  /** Fetch all products and filter for flash sale items client-side */
+   606→  const { data: flashSaleData, isLoading: bestSellerLoading } = useQuery({
+   607→    queryKey: ['products', 'flash-sale'],
+   608→    queryFn: async () => {
+   609→      const res = await api.get<PaginatedResponse<ProductListItem>>('/products', {
+   610→        limit: 20,
+   611→      })
+   612→      return res.success ? res.data : null
+   613→    },
+   614→  })
+   615→
+   616→  /** Fetch all categories for the category grid section */
+   617→  const { data: categories, isLoading: categoriesLoading } = useQuery({
+   618→    queryKey: ['categories'],
+   619→    queryFn: async () => {
+   620→      const res = await api.get<CategoryDisplay[]>('/categories')
+   621→      return res.success ? res.data : null
+   622→    },
+   623→  })
+   624→
+   625→  /** Fetch all brands for the brand showcase section */
+   626→  const { data: brands, isLoading: brandsLoading } = useQuery({
+   627→    queryKey: ['brands'],
+   628→    queryFn: async () => {
+   629→      const res = await api.get<BrandDisplay[]>('/brands')
+   630→      return res.success ? res.data : null
+   631→    },
+   632→  })
+   633→
+   634→  // Filter flash sale items from all products (only show products with active flash sales)
+   635→  const flashSaleProducts = useMemo(() => {
+   636→    if (!flashSaleData?.items) return []
+   637→    return flashSaleData.items.filter((p) => p.flashSaleProduct?.[0] && p.flashSaleProduct[0].flashSale?.isActive)
+   638→  }, [flashSaleData])
+   639→
+   640→  // Take up to 8 categories for the grid display
+   641→  const displayCategories = useMemo(() => {
+   642→    if (!categories) return []
+   643→    return categories.slice(0, 8)
+   644→  }, [categories])
+   645→
+   646→  // ---- Handlers ----
+   647→
+   648→  /**
+   649→   * Handles newsletter subscription.
+   650→   * Performs basic email validation (non-empty + contains '@'),
+   651→   * sets a temporary success state, and auto-resets after 3 seconds.
+   652→   */
+   653→  const handleSubscribe = useCallback(() => {
+   654→    if (email.trim() && email.includes('@')) {
+   655→      setSubscribed(true)
+   656→      setEmail('')
+   657→      // Auto-hide the success message after 3 seconds
+   658→      setTimeout(() => setSubscribed(false), 3000)
+   659→    }
+   660→  }, [email])
+   661→
+   662→  // ========================================================================
+   663→  // RENDER
+   664→  // ========================================================================
+   665→
+   666→  return (
+   667→    <div className="flex flex-col gap-12 pb-12">
+   668→      {/* ================================================================== */}
+   669→      {/* SECTION 1: Hero Banner Carousel                                    */}
+   670→      {/* Displays rotating promotional banners with gradient backgrounds,   */}
+   671→      {/* decorative circles, animated title/subtitle, and CTA button.       */}
+   672→      {/* ================================================================== */}
+   673→      <section className="w-full">
+   674→        <Carousel
+   675→          setApi={setCarouselApi}
+   676→          opts={{ loop: true }}
+   677→          className="w-full"
+   678→        >
+   679→          <CarouselContent>
+   680→            {heroSlides.map((slide, idx) => (
+   681→              <CarouselItem key={idx}>
+   682→                <div
+   683→                  className={`relative bg-gradient-to-r ${slide.gradient} flex items-center justify-center overflow-hidden`}
+   684→                >
+   685→                  {/* Decorative background circles for visual depth */}
+   686→                  <div className="absolute -top-20 -right-20 size-80 rounded-full bg-white/10" />
+   687→                  <div className="absolute -bottom-16 -left-16 size-64 rounded-full bg-white/10" />
+   688→                  <div className="absolute top-1/2 right-1/4 size-40 rounded-full bg-white/5" />
+   689→
+   690→                  {/* Slide content: title, subtitle, and CTA with staggered entrance animations */}
+   691→                  <div className="relative z-10 flex flex-col items-center justify-center text-center px-6 py-16 sm:py-24 max-w-3xl mx-auto">
+   692→                    <motion.h1
+   693→                      initial={{ opacity: 0, y: 20 }}
+   694→                      animate={{ opacity: 1, y: 0 }}
+   695→                      transition={{ duration: 0.6, delay: 0.2 }}
+   696→                      className={`text-3xl sm:text-4xl md:text-5xl font-bold ${slide.accent} mb-4`}
+   697→                    >
+   698→                      {slide.title}
+   699→                    </motion.h1>
+   700→                    <motion.p
+   701→                      initial={{ opacity: 0, y: 16 }}
+   702→                      animate={{ opacity: 1, y: 0 }}
+   703→                      transition={{ duration: 0.5, delay: 0.35 }}
+   704→                      className={`text-base sm:text-lg ${slide.accent} opacity-90 mb-8 max-w-lg`}
+   705→                    >
+   706→                      {slide.subtitle}
+   707→                    </motion.p>
+   708→                    <motion.div
+   709→                      initial={{ opacity: 0, y: 12 }}
+   710→                      animate={{ opacity: 1, y: 0 }}
+   711→                      transition={{ duration: 0.4, delay: 0.5 }}
+   712→                    >
+   713→                      {/* CTA button navigates to the products page */}
+   714→                      <Button
+   715→                        size="lg"
+   716→                        className="bg-white text-slate-900 hover:bg-white/90 font-semibold gap-2 shadow-lg"
+   717→                        onClick={() => navigate(slide.route)}
+   718→                      >
+   719→                        {slide.cta}
+   720→                        <ArrowRight className="size-4" />
+   721→                      </Button>
+   722→                    </motion.div>
+   723→                  </div>
+   724→                </div>
+   725→              </CarouselItem>
+   726→            ))}
+   727→          </CarouselContent>
+   728→
+   729→          {/* Carousel navigation arrows - semi-transparent on the gradient background */}
+   730→          <CarouselPrevious className="left-4 top-1/2 -translate-y-1/2 bg-white/20 border-0 text-white hover:bg-white/30 hover:text-white size-10" />
+   731→          <CarouselNext className="right-4 top-1/2 -translate-y-1/2 bg-white/20 border-0 text-white hover:bg-white/30 hover:text-white size-10" />
+   732→
+   733→          {/* Dot indicators - active dot is wider to indicate current position */}
+   734→          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 z-20">
+   735→            {heroSlides.map((_, idx) => (
+   736→              <button
+   737→                key={idx}
+   738→                className={`h-2 rounded-full transition-all duration-300 ${
+   739→                  idx === currentSlide
+   740→                    ? 'w-6 bg-white'
+   741→                    : 'w-2 bg-white/50'
+   742→                }`}
+   743→                onClick={() => carouselApi?.scrollTo(idx)}
+   744→                aria-label={`Go to slide ${idx + 1}`}
+   745→              />
+   746→            ))}
+   747→          </div>
+   748→        </Carousel>
+   749→      </section>
+   750→
+   751→      {/* ================================================================== */}
+   752→      {/* SECTION 2: Flash Sale Countdown                                    */}
+   753→      {/* Shows time-limited deals with a live countdown timer. Products     */}
+   754→      {/* that are part of an active flash sale are displayed in a grid.     */}
+   755→      {/* ================================================================== */}
+   756→      <section className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full">
+   757→        <motion.div
+   758→          initial="hidden"
+   759→          whileInView="visible"
+   760→          viewport={{ once: true, margin: '-50px' }}
+   761→          variants={fadeInUp}
+   762→        >
+   763→          {/* Header row: Flash Sale label, countdown timer, and "View All" link */}
+   764→          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+   765→            <div className="flex items-center gap-3">
+   766→              {/* Flash Sale badge */}
+   767→              <div className="flex items-center gap-2 bg-red-500 text-white px-4 py-2 rounded-lg">
+   768→                <Zap className="size-5" />
+   769→                <span className="font-bold text-lg">Flash Sale</span>
+   770→              </div>
+   771→              {/* "Ends in" label */}
+   772→              <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+   773→                <Timer className="size-4" />
+   774→                <span>Ends in</span>
+   775→              </div>
+   776→              {/* Countdown timer digits - monospaced for stable layout */}
+   777→              <div className="flex items-center gap-1">
+   778→                {[
+   779→                  { value: countdown.hours, label: 'h' },
+   780→                  { value: countdown.minutes, label: 'm' },
+   781→                  { value: countdown.seconds, label: 's' },
+   782→                ].map((unit, i) => (
+   783→                  <div key={i} className="flex items-center gap-1">
+   784→                    <span className="bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-mono font-bold text-lg px-2 py-1 rounded min-w-[2.5rem] text-center">
+   785→                      {String(unit.value).padStart(2, '0')}
+   786→                    </span>
+   787→                    <span className="text-sm font-medium text-muted-foreground">
+   788→                      {unit.label}
+   789→                    </span>
+   790→                  </div>
+   791→                ))}
+   792→              </div>
+   793→            </div>
+   794→            {/* Link to view all products */}
+   795→            <Button
+   796→              variant="ghost"
+   797→              className="gap-1 text-sm"
+   798→              onClick={() => navigate('products')}
+   799→            >
+   800→              View All <ChevronRight className="size-4" />
+   801→            </Button>
+   802→          </div>
+   803→
+   804→          {/* Flash sale products grid - shows skeleton, products, or empty state */}
+   805→          {bestSellerLoading ? (
+   806→            /* Loading skeleton: 4 placeholder cards */
+   807→            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+   808→              {Array.from({ length: 4 }).map((_, i) => (
+   809→                <ProductCardSkeleton key={i} />
+   810→              ))}
+   811→            </div>
+   812→          ) : flashSaleProducts.length > 0 ? (
+   813→            /* Flash sale products with staggered entrance animation */
+   814→            <motion.div
+   815→              className="grid grid-cols-2 md:grid-cols-4 gap-4"
+   816→              variants={staggerContainer}
+   817→              initial="hidden"
+   818→              whileInView="visible"
+   819→              viewport={{ once: true, margin: '-50px' }}
+   820→            >
+   821→              {flashSaleProducts.slice(0, 4).map((product) => (
+   822→                <ProductCard key={product.id} product={product} />
+   823→              ))}
+   824→            </motion.div>
+   825→          ) : (
+   826→            /* Empty state when no flash sale products are available */
+   827→            <div className="rounded-xl border border-dashed p-8 text-center">
+   828→              <Zap className="size-10 text-muted-foreground/40 mx-auto mb-3" />
+   829→              <p className="text-muted-foreground">
+   830→                No flash sale items available right now. Check back soon!
+   831→              </p>
+   832→            </div>
+   833→          )}
+   834→        </motion.div>
+   835→      </section>
+   836→
+   837→      {/* ================================================================== */}
+   838→      {/* SECTION 3: Category Grid                                           */}
+   839→      {/* Displays up to 8 product categories as clickable cards with        */}
+   840→      {/* dynamic icons and product counts. Clicking navigates to the        */}
+   841→      {/* products page filtered by that category.                           */}
+   842→      {/* ================================================================== */}
+   843→      <section className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full">
+   844→        <motion.div
+   845→          initial="hidden"
+   846→          whileInView="visible"
+   847→          viewport={{ once: true, margin: '-50px' }}
+   848→          variants={fadeInUp}
+   849→        >
+   850→          <div className="flex items-center justify-between mb-6">
+   851→            <h2 className="text-2xl font-bold">Shop by Category</h2>
+   852→            <Button
+   853→              variant="ghost"
+   854→              className="gap-1 text-sm"
+   855→              onClick={() => navigate('products')}
+   856→            >
+   857→              View All <ChevronRight className="size-4" />
+   858→            </Button>
+   859→          </div>
+   860→
+   861→          {categoriesLoading ? (
+   862→            /* Loading skeleton: 8 placeholder category cards */
+   863→            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+   864→              {Array.from({ length: 8 }).map((_, i) => (
+   865→                <Card key={i} className="p-4">
+   866→                  <div className="flex flex-col items-center gap-3">
+   867→                    <Skeleton className="size-12 rounded-full" />
+   868→                    <Skeleton className="h-4 w-20" />
+   869→                    <Skeleton className="h-3 w-14" />
+   870→                  </div>
+   871→                </Card>
+   872→              ))}
+   873→            </div>
+   874→          ) : (
+   875→            /* Category cards with staggered entrance and hover lift effect */
+   876→            <motion.div
+   877→              className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"
+   878→              variants={staggerContainer}
+   879→              initial="hidden"
+   880→              whileInView="visible"
+   881→              viewport={{ once: true, margin: '-50px' }}
+   882→            >
+   883→              {displayCategories.map((cat) => {
+   884→                const style = getCategoryStyle(cat.slug)
+   885→                const IconComp = style.icon
+   886→                return (
+   887→                  <motion.div key={cat.id} variants={staggerItem}>
+   888→                    <Card
+   889→                      className="cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5 py-0"
+   890→                      onClick={() =>
+   891→                        navigate('products', { categoryId: cat.id })
+   892→                      }
+   893→                    >
+   894→                      <CardContent className="flex flex-col items-center gap-3 p-5">
+   895→                        {/* Category icon with themed background */}
+   896→                        <div
+   897→                          className={`size-14 rounded-full ${style.bg} flex items-center justify-center`}
+   898→                        >
+   899→                          <IconComp className={`size-7 ${style.color}`} />
+   900→                        </div>
+   901→                        <span className="font-medium text-sm text-center">
+   902→                          {cat.name}
+   903→                        </span>
+   904→                        {/* Product count within the category */}
+   905→                        <span className="text-xs text-muted-foreground">
+   906→                          {cat._count?.products ?? 0} Products
+   907→                        </span>
+   908→                      </CardContent>
+   909→                    </Card>
+   910→                  </motion.div>
+   911→                )
+   912→              })}
+   913→            </motion.div>
+   914→          )}
+   915→        </motion.div>
+   916→      </section>
+   917→
+   918→      {/* ================================================================== */}
+   919→      {/* SECTION 4: Featured Products                                       */}
+   920→      {/* Displays up to 4 products marked as "featured" by the store.       */}
+   921→      {/* Each product card supports cart and wishlist interactions.          */}
+   922→      {/* ================================================================== */}
+   923→      <section className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full">
+   924→        <motion.div
+   925→          initial="hidden"
+   926→          whileInView="visible"
+   927→          viewport={{ once: true, margin: '-50px' }}
+   928→          variants={fadeInUp}
+   929→        >
+   930→          <div className="flex items-center justify-between mb-6">
+   931→            <h2 className="text-2xl font-bold">Featured Products</h2>
+   932→            <Button
+   933→              variant="ghost"
+   934→              className="gap-1 text-sm"
+   935→              onClick={() => navigate('products')}
+   936→            >
+   937→              View All <ChevronRight className="size-4" />
+   938→            </Button>
+   939→          </div>
+   940→
+   941→          {featuredLoading ? (
+   942→            /* Loading skeleton: 4 placeholder product cards */
+   943→            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+   944→              {Array.from({ length: 4 }).map((_, i) => (
+   945→                <ProductCardSkeleton key={i} />
+   946→              ))}
+   947→            </div>
+   948→          ) : featuredData?.items && featuredData.items.length > 0 ? (
+   949→            /* Featured products with staggered entrance animation */
+   950→            <motion.div
+   951→              className="grid grid-cols-2 md:grid-cols-4 gap-4"
+   952→              variants={staggerContainer}
+   953→              initial="hidden"
+   954→              whileInView="visible"
+   955→              viewport={{ once: true, margin: '-50px' }}
+   956→            >
+   957→              {featuredData.items.map((product) => (
+   958→                <ProductCard key={product.id} product={product} />
+   959→              ))}
+   960→            </motion.div>
+   961→          ) : (
+   962→            /* Empty state when no featured products exist */
+   963→            <div className="rounded-xl border border-dashed p-8 text-center">
+   964→              <Package className="size-10 text-muted-foreground/40 mx-auto mb-3" />
+   965→              <p className="text-muted-foreground">
+   966→                No featured products at the moment.
+   967→              </p>
+   968→            </div>
+   969→          )}
+   970→        </motion.div>
+   971→      </section>
+   972→
+   973→      {/* ================================================================== */}
+   974→      {/* SECTION 5: Brand Showcase                                          */}
+   975→      {/* Horizontal scrolling list of brand logos/names. Clicking a brand   */}
+   976→      {/* card navigates to the products page filtered by that brand.        */}
+   977→      {/* ================================================================== */}
+   978→      <section className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full">
+   979→        <motion.div
+   980→          initial="hidden"
+   981→          whileInView="visible"
+   982→          viewport={{ once: true, margin: '-50px' }}
+   983→          variants={fadeInUp}
+   984→        >
+   985→          <h2 className="text-2xl font-bold mb-6">Popular Brands</h2>
+   986→
+   987→          {brandsLoading ? (
+   988→            /* Loading skeleton: 6 placeholder brand cards */
+   989→            <div className="flex gap-4 overflow-x-auto pb-2">
+   990→              {Array.from({ length: 6 }).map((_, i) => (
+   991→                <Skeleton
+   992→                  key={i}
+   993→                  className="size-24 rounded-xl shrink-0"
+   994→                />
+   995→              ))}
+   996→            </div>
+   997→          ) : brands && brands.length > 0 ? (
+   998→            /* Brand cards in a horizontal scroll container */
+   999→            <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-none">
+  1000→              {brands.map((brand) => (
+  1001→                <Card
+  1002→                  key={brand.id}
+  1003→                  className="shrink-0 cursor-pointer transition-all hover:shadow-md hover:-translate-y-0.5 py-0"
+  1004→                  onClick={() =>
+  1005→                    navigate('products', { brandId: brand.id })
+  1006→                  }
+  1007→                >
+  1008→                  <CardContent className="flex flex-col items-center justify-center p-5 min-w-[120px] h-[100px]">
+  1009→                    {/* Brand logo or initial letter gradient placeholder */}
+  1010→                    {brand.logo ? (
+  1011→                      <img
+  1012→                        src={brand.logo}
+  1013→                        alt={brand.name}
+  1014→                        className="h-10 w-auto object-contain mb-1"
+  1015→                      />
+  1016→                    ) : (
+  1017→                      <div className="size-10 rounded-full bg-gradient-to-br from-slate-200 to-slate-300 dark:from-slate-600 dark:to-slate-700 flex items-center justify-center mb-1">
+  1018→                        <span className="font-bold text-sm text-slate-500 dark:text-slate-300">
+  1019→                          {brand.name.charAt(0).toUpperCase()}
+  1020→                        </span>
+  1021→                      </div>
+  1022→                    )}
+  1023→                    <span className="text-xs font-medium text-muted-foreground text-center truncate max-w-[100px]">
+  1024→                      {brand.name}
+  1025→                    </span>
+  1026→                  </CardContent>
+  1027→                </Card>
+  1028→              ))}
+  1029→            </div>
+  1030→          ) : (
+  1031→            /* Empty state when no brands exist */
+  1032→            <div className="rounded-xl border border-dashed p-6 text-center">
+  1033→              <p className="text-muted-foreground text-sm">No brands available</p>
+  1034→            </div>
+  1035→          )}
+  1036→        </motion.div>
+  1037→      </section>
+  1038→
+  1039→      {/* ================================================================== */}
+  1040→      {/* SECTION 6: Newsletter CTA                                          */}
+  1041→      {/* Email subscription form with gradient background and decorative    */}
+  1042→      {/* shapes. Shows a success message briefly after subscribing.         */}
+  1043→      {/* ================================================================== */}
+  1044→      <section className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full">
+  1045→        <motion.div
+  1046→          initial="hidden"
+  1047→          whileInView="visible"
+  1048→          viewport={{ once: true, margin: '-50px' }}
+  1049→          variants={fadeIn}
+  1050→        >
+  1051→          <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-500 to-emerald-500 px-6 py-12 sm:px-12 sm:py-16">
+  1052→            {/* Decorative background shapes */}
+  1053→            <div className="absolute -top-10 -right-10 size-40 rounded-full bg-white/10" />
+  1054→            <div className="absolute -bottom-8 -left-8 size-32 rounded-full bg-white/10" />
+  1055→            <div className="absolute top-1/3 right-1/3 size-20 rounded-full bg-white/5" />
+  1056→
+  1057→            <div className="relative z-10 flex flex-col items-center text-center max-w-xl mx-auto">
+  1058→              <Mail className="size-10 text-white/80 mb-4" />
+  1059→              <h2 className="text-2xl sm:text-3xl font-bold text-white mb-3">
+  1060→                Stay in the Loop
+  1061→              </h2>
+  1062→              <p className="text-white/80 mb-8 text-sm sm:text-base">
+  1063→                Subscribe to our newsletter for exclusive deals, new arrivals, and insider-only discounts.
+  1064→              </p>
+  1065→              {/* Toggle between subscription form and success message */}
+  1066→              {subscribed ? (
+  1067→                <motion.div
+  1068→                  initial={{ scale: 0.9, opacity: 0 }}
+  1069→                  animate={{ scale: 1, opacity: 1 }}
+  1070→                  className="bg-white/20 backdrop-blur-sm rounded-lg px-6 py-3 text-white font-medium"
+  1071→                >
+  1072→                  Thanks for subscribing!
+  1073→                </motion.div>
+  1074→              ) : (
+  1075→                <div className="flex w-full max-w-md gap-2">
+  1076→                  {/* Email input with Enter key support for submission */}
+  1077→                  <Input
+  1078→                    type="email"
+  1079→                    placeholder="Enter your email address"
+  1080→                    value={email}
+  1081→                    onChange={(e) => setEmail(e.target.value)}
+  1082→                    onKeyDown={(e) => e.key === 'Enter' && handleSubscribe()}
+  1083→                    className="bg-white/20 border-white/30 text-white placeholder:text-white/60 focus-visible:border-white focus-visible:ring-white/30 h-11"
+  1084→                  />
+  1085→                  <Button
+  1086→                    onClick={handleSubscribe}
+  1087→                    className="bg-white text-emerald-700 hover:bg-white/90 font-semibold shrink-0 h-11 px-6"
+  1088→                  >
+  1089→                    Subscribe
+  1090→                  </Button>
+  1091→                </div>
+  1092→              )}
+  1093→            </div>
+  1094→          </div>
+  1095→        </motion.div>
+  1096→      </section>
+  1097→
+  1098→      {/* ================================================================== */}
+  1099→      {/* SECTION 7: Stats Bar                                               */}
+  1100→      {/* Grid of trust/credibility statistics with icons.                   */}
+  1101→      {/* ================================================================== */}
+  1102→      <section className="px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full">
+  1103→        <motion.div
+  1104→          initial="hidden"
+  1105→          whileInView="visible"
+  1106→          viewport={{ once: true, margin: '-50px' }}
+  1107→          variants={staggerContainer}
+  1108→          className="grid grid-cols-2 md:grid-cols-4 gap-4"
+  1109→        >
+  1110→          {stats.map((stat) => {
+  1111→            const IconComp = stat.icon
+  1112→            return (
+  1113→              <motion.div key={stat.label} variants={staggerItem}>
+  1114→                <Card className="py-0">
+  1115→                  <CardContent className="flex flex-col items-center gap-2 p-5">
+  1116→                    <IconComp className={`size-8 ${stat.color}`} />
+  1117→                    <span className="font-bold text-lg">{stat.label}</span>
+  1118→                  </CardContent>
+  1119→                </Card>
+  1120→              </motion.div>
+  1121→            )
+  1122→          })}
+  1123→        </motion.div>
+  1124→      </section>
+  1125→    </div>
+  1126→  )
+  1127→}
+  1128→
